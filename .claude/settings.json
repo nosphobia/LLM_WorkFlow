@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push * main)",
+      "Bash(git reset --hard *)",
+      "Bash(rm -rf *)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Read(secrets/**)",
+      "Edit(secrets/**)"
+    ],
+    "ask": [
+      "Bash(git push *)",
+      "Bash(git merge *)"
+    ]
+  }
+}
