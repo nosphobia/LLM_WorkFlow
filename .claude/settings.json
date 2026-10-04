@@ -11,7 +11,15 @@
       "Edit(.env)",
       "Edit(.env.*)",
       "Read(secrets/**)",
-      "Edit(secrets/**)"
+      "Edit(secrets/**)",
+      "PowerShell",
+      "Bash(powershell *)",
+      "Bash(powershell.exe *)",
+      "Bash(pwsh *)",
+      "Bash(pwsh.exe *)",
+      "Bash(cmd *)",
+      "Bash(cmd.exe *)",
+      "Bash(* --no-verify*)"
     ],
     "ask": [
       "Bash(git push *)",
