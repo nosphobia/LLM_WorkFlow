@@ -211,6 +211,11 @@ function main() {
   const gitFile = path.join(repo, ".git", "llm-workflow-probe");
   if (fs.existsSync(outsideFile)) {
     record("6. 샌드박스 경계", false, `이전 실행이 남긴 파일을 먼저 지워 주세요: ${outsideFile}`);
+  } else if (
+    // 양성 대조: 샌드박스 밖에서는 같은 연결이 되어야 "network: denied"가 샌드박스 덕분이라고 말할 수 있다.
+    spawnSync("python", ["-c", "import socket; socket.create_connection(('example.com', 443), timeout=5).close()"], { encoding: "utf8" }).status !== 0
+  ) {
+    record("6. 샌드박스 경계", false, "판정 불가: 이 PC에서 example.com:443에 접속할 수 없어 네트워크 차단을 확인할 수 없습니다");
   } else {
     const probe = callWrapper("boundary", ["start", "--role", "check", "--task", "6"], boundaryPrompt(outsideDir));
     const verdict =
