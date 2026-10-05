@@ -95,11 +95,11 @@ Codex 작업은 한 번에 하나만 돌린다.
 - 나머지(명세 ❌, Critical, Important, 확인된 ⚠️)는 루프에 넣는다. 한 라운드는 Codex 수정 한 번과 수정분 재검수 한 번이다.
   1. 지적을 `task-<N>-findings-r<R>.md`에 저장하고 `task-<N>-findings-history.md`에 덧붙인다.
   2. 1~3라운드: `fix-prompt.md`로 같은 대화를 이어간다(`resume --role fix --task <N> --round <R>`).
-  3. 4~5라운드: `review-package <계획 파일> <BASE> HEAD`로 지금까지의 변경을 묶고, `handoff-prompt.md`로 새 대화를 시작한다(`start --role fix --task <N> --round 4 --effort xhigh`). 5라운드는 이 새 대화를 이어간다.
+  3. 4~5라운드: `review-package <계획 파일> <BASE> HEAD`로 지금까지의 변경을 묶고, `handoff-prompt.md`로 새 대화를 시작한다(`start --role fix --task <N> --round 4 --effort xhigh`). 5라운드는 이 새 대화를 `--effort xhigh`로 이어간다(`resume ... --effort xhigh`). 4라운드에서 새 대화를 시작하면 `progress.md`에 `Task <N>: codex thread <새 대화 ID> (round 4)`를 적는다.
   4. 재검수: 앞 검수가 본 HEAD를 `FIX_BASE`로 `review-package <계획 파일> <FIX_BASE> HEAD`를 만들고 재검수 틀로 보낸다. 작은 수정은 `haiku`, 그 밖에는 `sonnet`이다.
   5. `progress.md`에 `Task <N>: fix round <R>/5 (<X> addressed, <Y> open — <지적 한 줄들>; commits <a7>..<b7>)`를 적는다.
-- 5라운드 뒤 남은 지적은 마스터가 판정한다. 검수자가 틀렸거나 다툼이 있으면 `Task <N>: parked — <지적> — Ruling: <이유>`로 보류한다. 실제 문제지만 뒤 작업이 기대지 않으면 같은 형식으로 보류한다. 뒤 작업이 기대는 문제면 막힘을 푸는 가장 작은 변경을 판정해 기록하고 다음 작업 지시에 담는다. 어느 쪽으로 가도 추측뿐이면 멈추고 보고한다.
-- 판정은 루프 상한에서만 한다.
+- 5라운드 뒤 남은 지적은 마스터가 판정한다. 검수자가 틀렸거나 다툼이 있으면 `Task <N>: parked — <지적> — Ruling: <이유> — <틀렸을 때 비용>`로 보류한다. 실제 문제지만 뒤 작업이 기대지 않으면 같은 형식으로 보류한다. 뒤 작업이 기대는 문제면 막힘을 푸는 가장 작은 변경을 판정해 기록하고 다음 작업 지시에 담는다. 어느 쪽으로 가도 추측뿐이면 멈추고 보고한다.
+- 검수 지적에 대한 판정은 루프 상한에서만 한다.
 
 ## 마무리
 

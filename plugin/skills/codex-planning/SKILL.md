@@ -80,7 +80,7 @@ description: 승인된 명세로 구현 계획을 만들 때 superpowers:writing
 
 1. 지적을 `plan-findings-r<N>.md`에 저장하고, `plan-findings-history.md`에 라운드 제목과 함께 덧붙인다.
 2. 1~3라운드: `fix-prompt.md`를 채워 2단계의 대화를 이어간다(`resume --role plan-fix --round <N>`).
-3. 4~5라운드: `plan-attempts.md`에 지금까지의 수정 시도를 요약하고, `handoff-prompt.md`를 채워 새 대화로 시작한다(`start --role plan-fix --round <N> --effort xhigh`). 5라운드는 4라운드의 새 대화를 이어간다(`resume ... --effort xhigh`).
+3. 4~5라운드: `plan-attempts.md`에 지금까지의 수정 시도를 요약하고, `handoff-prompt.md`를 채워 새 대화로 시작한다(`start --role plan-fix --round <N> --effort xhigh`). 5라운드는 4라운드의 새 대화를 이어간다(`resume ... --effort xhigh`). 4라운드에서 새 대화를 시작하면 `planning.md`에 `계획 수정: thread <새 대화 ID> (round 4)`를 적는다.
 4. 재검수는 `sonnet`으로 한다. 같은 계획 검수 틀을 쓰되 끝에 다음 문장을 붙인다: "Re-review only: for each finding in <지적 파일>, decide whether it is resolved, and report only new Critical or Important problems introduced by the fix."
 5. `planning.md`에 `계획 수정 <N>/5: <해결 수> 해결, <남은 수> 남음 — 커밋 <해시>`를 적는다.
 6. 5라운드 뒤에도 남은 지적은 마스터가 판정해 `planning.md`에 `Ruling: <지적> — <판정과 이유> — <틀렸을 때 비용>`으로 남기고 진행한다. 어느 쪽으로 가도 추측뿐이면 멈추고 보고한다.
