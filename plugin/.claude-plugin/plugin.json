@@ -1,0 +1,6 @@
+{
+  "name": "llm-workflow",
+  "version": "0.1.0",
+  "description": "LLM_WorkFlow 3단계: Codex가 작성하고 Claude가 검수하는 계획·실행 스킬과 Codex 래퍼",
+  "author": { "name": "nosphobia" }
+}

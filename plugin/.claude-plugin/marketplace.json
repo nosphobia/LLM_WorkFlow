@@ -1,0 +1,12 @@
+{
+  "name": "llm-workflow-local",
+  "description": "LLM_WorkFlow 저장소의 로컬 플러그인 마켓플레이스",
+  "owner": { "name": "nosphobia" },
+  "plugins": [
+    {
+      "name": "llm-workflow",
+      "source": "./",
+      "description": "Codex가 작성하고 Claude가 검수하는 계획·실행 스킬"
+    }
+  ]
+}
