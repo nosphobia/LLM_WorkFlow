@@ -22,6 +22,7 @@
 6. 진행 기록 폴더의 사용량 합계를 출력하는 `codex-usage.mjs`를 더한다. 실행 스킬의 마무리 보고와 비교 보고서에 쓴다.
 7. 로컬 마켓플레이스 등록을 위해 `plugin/.claude-plugin/marketplace.json`을 더한다.
 8. 탐색 기록(`turn_context.sandbox_policy.exclude_tmpdir_env_var: false`)으로 보면 Codex 샌드박스는 OS 임시 폴더 쓰기도 허용하는 것으로 보인다. 그래서 점검 스크립트의 "저장소 밖 쓰기" 확인은 임시 폴더가 아닌 `plugin/.check-outside/`를 대상으로 한다. 결과는 Task 8에서 탐색 보고서에 기록한다.
+9. 차례가 정상으로 끝났으면 Codex가 재시도한 일시 오류(재연결 등)는 실패로 보지 않고 결과의 transientError에 남긴다. 명세 3.3절 4번의 "오류 필드면 실패"를 좁힌 것이다.
 
 ## File Structure
 
@@ -2858,10 +2859,10 @@ Expected: 종료 코드 0, `codex-run exit=0 ... reason=환경 점검 통과`
 
 - [ ] **Step 6: 연결부 점검 실행**
 
-Codex를 실제로 4번 부르므로 몇 분 걸린다. Bash 백그라운드 실행으로 돌리고 끝났다는 알림을 기다린다.
+Codex를 실제로 5번 부르므로 몇 분 걸린다(시간 초과 점검에만 2분 이상). Bash 백그라운드 실행으로 돌리고 끝났다는 알림을 기다린다.
 
 Run: `node plugin/scripts/codex-check.mjs`
-Expected: 종료 코드 0, 일곱 줄 모두 `[통과]`. 하나라도 `[실패]`면 출력 전체를 사용자에게 보고하고 멈춘다. 테스트나 판정 기준을 고쳐서 통과시키지 않는다. 원인 조사는 superpowers:systematic-debugging으로 한다.
+Expected: 종료 코드 0, 여덟 줄 모두 `[통과]`. 하나라도 `[실패]`면 출력 전체를 사용자에게 보고하고 멈춘다. 테스트나 판정 기준을 고쳐서 통과시키지 않는다. 원인 조사는 superpowers:systematic-debugging으로 한다.
 
 - [ ] **Step 7: 탐색 보고서에 고정 후 점검 결과를 덧붙인다**
 
@@ -2875,7 +2876,7 @@ Expected: 종료 코드 0, 일곱 줄 모두 `[통과]`. 하나라도 `[실패]`
 - 고정한 버전: Codex 플러그인 1.0.4 (`807e03a`), Superpowers Claude Code 쪽 6.4.1 (`5bf4e78`), Codex 쪽 6.4.1 (마켓플레이스 `<Step 4에서 쓴 이름>`, 커밋 `5bf4e78`)
 - Codex CLI: <codex --version 출력>
 
-<codex-check.mjs가 출력한 [통과]/[실패] 일곱 줄을 그대로 붙인다>
+<codex-check.mjs가 출력한 [통과]/[실패] 여덟 줄을 그대로 붙인다>
 
 - 임시 폴더 쓰기: Codex 기본 정책(`exclude_tmpdir_env_var: false`)상 OS 임시 폴더 쓰기는 허용되는 것으로 보인다. 점검 6번은 임시 폴더가 아닌 `plugin/.check-outside/`로 저장소 밖 쓰기를 확인했다.
 ```
