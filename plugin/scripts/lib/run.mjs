@@ -11,57 +11,61 @@ export async function runWrapper(options, deps) {
   const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, report: null, commit: null };
   const finish = (exitCode, reason) => finalize(options, deps, state, startedAt, exitCode, reason);
 
-  const problems = deps.checkEnvironment(options.cwd);
-  if (problems.length > 0) return finish(EXIT.ENVIRONMENT, problems.join("; "));
-  if (options.action === "check") return finish(EXIT.OK, "환경 점검 통과");
+  try {
+    const problems = deps.checkEnvironment(options.cwd);
+    if (problems.length > 0) return finish(EXIT.ENVIRONMENT, problems.join("; "));
+    if (options.action === "check") return finish(EXIT.OK, "환경 점검 통과");
 
-  const prompt = deps.readText(options.promptFile);
-  if (!prompt) return finish(EXIT.FAILED, `지시 파일을 읽을 수 없습니다: ${options.promptFile}`);
-  deps.ensureWorkspace(options.workspace);
-  if (options.action === "start") {
-    const dirty = deps.listChangedFiles(options.cwd);
-    if (dirty.length > 0) return finish(EXIT.FAILED, `새 대화를 시작하기 전에 커밋되지 않은 변경이 있습니다: ${dirty.join(", ")}`);
-  }
+    const prompt = deps.readText(options.promptFile);
+    if (!prompt) return finish(EXIT.FAILED, `지시 파일을 읽을 수 없습니다: ${options.promptFile}`);
+    deps.ensureWorkspace(options.workspace);
+    if (options.action === "start") {
+      const dirty = deps.listChangedFiles(options.cwd);
+      if (dirty.length > 0) return finish(EXIT.FAILED, `새 대화를 시작하기 전에 커밋되지 않은 변경이 있습니다: ${dirty.join(", ")}`);
+    }
 
-  const first = await runTurn(prompt, options.action === "resume" ? options.threadId : null);
-  if (first.exit !== null) return finish(first.exit, first.reason);
-  if (options.action === "resume" && first.threadId !== options.threadId) {
-    return finish(EXIT.FAILED, `이어간 대화 ID가 다릅니다: 요청 ${options.threadId}, 응답 ${first.threadId}`);
-  }
+    const first = await runTurn(prompt, options.action === "resume" ? options.threadId : null);
+    if (first.exit !== null) return finish(first.exit, first.reason);
+    if (options.action === "resume" && first.threadId !== options.threadId) {
+      return finish(EXIT.FAILED, `이어간 대화 ID가 다릅니다: 요청 ${options.threadId}, 응답 ${first.threadId}`);
+    }
 
-  let report = parseReport(first.finalMessage);
-  if (!report.ok) {
-    state.corrections += 1;
-    const again = await runTurn(buildFormatCorrection(report.error), state.threadId);
-    if (again.exit !== null) return finish(again.exit, again.reason);
-    report = parseReport(again.finalMessage);
-    if (!report.ok) return finish(EXIT.FAILED, `형식 위반 정정 실패: ${report.error}`);
-  }
-  state.report = report;
-  if (!isDone(report.status)) return finish(EXIT.STOPPED, `Codex 보고: ${report.status}`);
-
-  let comparison = compareChangedFiles(report.changedFiles, deps.listChangedFiles(options.cwd));
-  if (!comparison.match) {
-    state.corrections += 1;
-    const again = await runTurn(buildMismatchCorrection(comparison), state.threadId);
-    if (again.exit !== null) return finish(again.exit, again.reason);
-    report = parseReport(again.finalMessage);
-    if (!report.ok) return finish(EXIT.FAILED, `보고 불일치 정정 뒤 형식 위반: ${report.error}`);
+    let report = parseReport(first.finalMessage);
+    if (!report.ok) {
+      state.corrections += 1;
+      const again = await runTurn(buildFormatCorrection(report.error), state.threadId);
+      if (again.exit !== null) return finish(again.exit, again.reason);
+      report = parseReport(again.finalMessage);
+      if (!report.ok) return finish(EXIT.FAILED, `형식 위반 정정 실패: ${report.error}`);
+    }
     state.report = report;
     if (!isDone(report.status)) return finish(EXIT.STOPPED, `Codex 보고: ${report.status}`);
-    comparison = compareChangedFiles(report.changedFiles, deps.listChangedFiles(options.cwd));
-    if (!comparison.match) {
-      const missing = comparison.missing.join(", ") || "없음";
-      const extra = comparison.extra.join(", ") || "없음";
-      return finish(EXIT.FAILED, `보고와 실제 변경이 다릅니다 (보고에만 있음: ${missing} / 실제에만 있음: ${extra})`);
-    }
-  }
 
-  if (report.changedFiles.length > 0) {
-    const model = [...state.turns].reverse().find((turn) => turn.model)?.model ?? null;
-    state.commit = deps.commitFiles(options.cwd, report.changedFiles, buildCommitMessage(report.commitMessage, model));
+    let comparison = compareChangedFiles(report.changedFiles, deps.listChangedFiles(options.cwd));
+    if (!comparison.match) {
+      state.corrections += 1;
+      const again = await runTurn(buildMismatchCorrection(comparison), state.threadId);
+      if (again.exit !== null) return finish(again.exit, again.reason);
+      report = parseReport(again.finalMessage);
+      if (!report.ok) return finish(EXIT.FAILED, `보고 불일치 정정 뒤 형식 위반: ${report.error}`);
+      state.report = report;
+      if (!isDone(report.status)) return finish(EXIT.STOPPED, `Codex 보고: ${report.status}`);
+      comparison = compareChangedFiles(report.changedFiles, deps.listChangedFiles(options.cwd));
+      if (!comparison.match) {
+        const missing = comparison.missing.join(", ") || "없음";
+        const extra = comparison.extra.join(", ") || "없음";
+        return finish(EXIT.FAILED, `보고와 실제 변경이 다릅니다 (보고에만 있음: ${missing} / 실제에만 있음: ${extra})`);
+      }
+    }
+
+    if (report.changedFiles.length > 0) {
+      const model = [...state.turns].reverse().find((turn) => turn.model)?.model ?? null;
+      state.commit = deps.commitFiles(options.cwd, report.changedFiles, buildCommitMessage(report.commitMessage, model));
+    }
+    return finish(EXIT.OK, `Codex 보고: ${report.status}`);
+  } catch (error) {
+    return finish(EXIT.FAILED, `예상하지 못한 오류: ${error?.message ?? error}`);
   }
-  return finish(EXIT.OK, `Codex 보고: ${report.status}`);
 
   async function runTurn(text, resumeThreadId) {
     const ids = { threadId: resumeThreadId, turnId: null };
@@ -140,24 +144,32 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
     finishedAt: new Date(finishedAt).toISOString()
   };
   if (options.action !== "check") {
-    deps.writeJson(options.out, result);
+    try {
+      deps.writeJson(options.out, result);
+    } catch (error) {
+      result.reason += ` (결과 기록 실패: ${error?.message ?? error})`;
+    }
     if (state.turns.length > 0) {
-      deps.appendLine(path.join(options.workspace, USAGE_FILE), {
-        time: result.finishedAt,
-        action: result.action,
-        role: result.role,
-        task: result.task,
-        round: result.round,
-        threadId: result.threadId,
-        exitCode,
-        status: result.status,
-        corrections: result.corrections,
-        durationSec: result.durationSec,
-        models: usage.models,
-        tokens: usage.tokens,
-        weeklyStart: usage.weeklyStart,
-        weeklyEnd: usage.weeklyEnd
-      });
+      try {
+        deps.appendLine(path.join(options.workspace, USAGE_FILE), {
+          time: result.finishedAt,
+          action: result.action,
+          role: result.role,
+          task: result.task,
+          round: result.round,
+          threadId: result.threadId,
+          exitCode,
+          status: result.status,
+          corrections: result.corrections,
+          durationSec: result.durationSec,
+          models: usage.models,
+          tokens: usage.tokens,
+          weeklyStart: usage.weeklyStart,
+          weeklyEnd: usage.weeklyEnd
+        });
+      } catch (error) {
+        result.reason += ` (결과 기록 실패: ${error?.message ?? error})`;
+      }
     }
   }
   return { exitCode, result, summaryLine: formatSummary(result, options.out) };

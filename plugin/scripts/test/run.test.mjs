@@ -224,3 +224,33 @@ test("세션 기록이 없어도 결과를 남기고 사용량은 비운다", as
   assert.equal(calls.lines[0].value.tokens, null);
   assert.match(calls.commit[0].message, /Co-Authored-By: Codex unknown-model/);
 });
+
+test("의존성 호출이 예외를 던져도 결과와 대화 ID를 남기고 3", async () => {
+  const { run, calls } = setup({
+    deps: {
+      commitFiles: () => {
+        throw new Error("git identity unknown");
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.match(result.reason, /예상하지 못한 오류: git identity unknown/);
+  assert.equal(calls.json.length, 1);
+  assert.equal(calls.json[0].value.threadId, "thread-1");
+  assert.equal(calls.json[0].value.report.status, "DONE");
+  assert.equal(calls.lines.length, 1);
+});
+
+test("결과 파일을 쓰지 못해도 요약 줄을 돌려준다", async () => {
+  const { run } = setup({
+    deps: {
+      writeJson: () => {
+        throw new Error("disk full");
+      }
+    }
+  });
+  const { exitCode, summaryLine } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.match(summaryLine, /결과 기록 실패: disk full/);
+});
