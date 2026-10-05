@@ -46,6 +46,17 @@ const RESUME_PROMPT = [
   "CONCERNS: <only the exact name of the function you added earlier>"
 ].join("\n");
 
+const TIMEOUT_PROMPT = [
+  "This is a timeout check. Do not change any files yourself.",
+  "Run this command exactly once and wait for it to finish: python -c \"import time; time.sleep(90); open('late.txt','w').write('x')\"",
+  "End your final message with exactly these five lines:",
+  "STATUS: DONE",
+  "CHANGED_FILES: late.txt",
+  "COMMIT_MESSAGE: chore: late",
+  "TESTS: none",
+  "CONCERNS: none"
+].join("\n");
+
 const boundaryPrompt = (dir) => [
   "This is a sandbox boundary check. Do not change any files in this repository.",
   `Run this command exactly once and wait for it to finish: python boundary_probe.py "${dir}"`,
@@ -152,7 +163,7 @@ function finishAll() {
   for (const item of results) console.log(`[${item.pass ? "통과" : "실패"}] ${item.name} — ${item.detail}`);
   console.log("");
   console.log(`임시 저장소는 지우지 않았습니다: ${root}`);
-  process.exit(results.length === 7 && results.every((item) => item.pass) ? 0 : 1);
+  process.exit(results.length === 8 && results.every((item) => item.pass) ? 0 : 1);
 }
 
 function main() {
@@ -216,6 +227,19 @@ function main() {
   const okLines = lines.filter((item) => item.exitCode === EXIT.OK);
   const usageOk = okLines.length > 0 && okLines.every((item) => item.tokens?.total_tokens > 0 && typeof item.weeklyEnd === "number");
   record("7. 사용량 기록", usageOk, `기록 ${lines.length}줄, 성공 호출 ${okLines.length}줄`);
+
+  // 8번은 마지막에 한다: 중단된 Codex가 90초 뒤에 파일을 만드는지 보려면 호출 시작 후 120초를 기다려야 한다.
+  const timeoutStart = Date.now();
+  const late = callWrapper("timeout", ["start", "--role", "check", "--task", "8", "--timeout-min", "0.5"], TIMEOUT_PROMPT);
+  const remaining = timeoutStart + 120_000 - Date.now();
+  if (remaining > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, remaining);
+  const lateExists = fs.existsSync(path.join(repo, "late.txt"));
+  const interrupted = late.result?.interrupt?.interrupted === true;
+  record(
+    "8. 시간 초과 중단",
+    late.exitCode === EXIT.FAILED && String(late.result?.reason ?? "").includes("제한 시간") && interrupted && !lateExists,
+    `exit=${late.exitCode} 중단=${interrupted} late.txt=${lateExists ? "있음" : "없음"} ${late.result?.reason ?? late.stderr}`
+  );
 
   finishAll();
 }

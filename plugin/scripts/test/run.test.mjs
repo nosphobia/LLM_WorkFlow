@@ -211,20 +211,57 @@ test("재시도된 일시 오류가 있어도 정상 완료된 차례는 커밋�
   assert.match(result.transientError, /Reconnecting/);
 });
 
+const hangAfterStart = (request) => {
+  request.onProgress({ message: "Turn started", threadId: "thread-1", turnId: "turn-9" });
+  return new Promise(() => {});
+};
+
 test("제한 시간을 넘기면 Codex 실행을 중단시키고 3", async () => {
   const { run, calls } = setup({
     options: { timeoutMin: 0.001 },
-    replies: [
-      (request) => {
-        request.onProgress({ message: "Turn started", threadId: "thread-1", turnId: "turn-9" });
-        return new Promise(() => {});
+    replies: [hangAfterStart],
+    deps: {
+      interrupt: async (request) => {
+        calls.interrupt.push(request);
+        return { attempted: true, interrupted: true, detail: "ok" };
       }
-    ]
+    }
   });
   const { exitCode, result } = await run();
   assert.equal(exitCode, EXIT.FAILED);
   assert.match(result.reason, /제한 시간/);
+  assert.match(result.reason, /중단 성공/);
+  assert.equal(result.interrupt.interrupted, true);
   assert.deepEqual(calls.interrupt[0], { cwd: "/repo", threadId: "thread-1", turnId: "turn-9" });
+});
+
+test("중단 요청이 예외를 던져도 제한 시간 결과와 대화 ID를 남긴다", async () => {
+  const { run } = setup({
+    options: { timeoutMin: 0.001 },
+    replies: [hangAfterStart],
+    deps: {
+      interrupt: async () => {
+        throw new Error("broker gone");
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.match(result.reason, /제한 시간/);
+  assert.match(result.reason, /broker gone/);
+  assert.equal(result.threadId, "thread-1");
+  assert.equal(result.interrupt.interrupted, false);
+});
+
+test("중단 요청이 응답하지 않으면 시간 상한 뒤 실패로 기록한다", async () => {
+  const { run } = setup({
+    options: { timeoutMin: 0.001 },
+    replies: [hangAfterStart],
+    deps: { interrupt: () => new Promise(() => {}), interruptTimeoutMs: 20 }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.equal(result.interrupt.detail, "중단 요청 시간 초과");
 });
 
 test("resume은 지정한 대화로 이어가고, 다른 대화가 돌아오면 3", async () => {

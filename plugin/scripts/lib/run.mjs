@@ -92,8 +92,15 @@ export async function runWrapper(options, deps) {
       clearTimeout(timer);
     }
     if (outcome.timedOut) {
-      await deps.interrupt({ cwd: options.cwd, threadId: ids.threadId, turnId: ids.turnId });
-      outcome = { timedOut: true, status: 1, error: { message: `제한 시간 ${options.timeoutMin}분 초과` } };
+      if (ids.threadId) state.threadId = ids.threadId;
+      state.interrupt = await requestInterrupt(deps, { cwd: options.cwd, threadId: ids.threadId, turnId: ids.turnId });
+      outcome = {
+        timedOut: true,
+        status: 1,
+        threadId: ids.threadId,
+        turnId: ids.turnId,
+        error: { message: `제한 시간 ${options.timeoutMin}분 초과 (중단 ${state.interrupt.interrupted ? "성공" : "실패"}: ${state.interrupt.detail ?? "-"})` }
+      };
     }
 
     const threadId = outcome.threadId ?? ids.threadId ?? null;
@@ -122,6 +129,24 @@ export async function runWrapper(options, deps) {
   }
 }
 
+// 중단 요청은 응답이 없거나 예외를 던져도 제한 시간 결과를 잃지 않도록 시간 상한을 두고 결과를 항상 돌려준다.
+async function requestInterrupt(deps, request) {
+  let timer;
+  const limit = new Promise((resolve) => {
+    timer = setTimeout(() => resolve({ attempted: true, interrupted: false, detail: "중단 요청 시간 초과" }), deps.interruptTimeoutMs ?? 30_000);
+  });
+  try {
+    const pending = Promise.resolve(deps.interrupt(request));
+    pending.catch(() => {});
+    const result = await Promise.race([pending, limit]);
+    return result ?? { attempted: true, interrupted: false, detail: "중단 결과 없음" };
+  } catch (error) {
+    return { attempted: true, interrupted: false, detail: String(error?.message ?? error) };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function finalize(options, deps, state, startedAt, exitCode, reason) {
   const finishedAt = deps.now();
   const usage = {
@@ -144,6 +169,7 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
     commit: state.commit,
     corrections: state.corrections,
     transientError: state.transientError,
+    interrupt: state.interrupt ?? null,
     durationSec: Math.round((finishedAt - startedAt) / 1000),
     usage,
     finishedAt: new Date(finishedAt).toISOString()
