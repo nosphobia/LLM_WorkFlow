@@ -10,7 +10,7 @@ export const REPORT_TEMPLATE = [
   "CONCERNS: <text, or none>"
 ].join("\n");
 
-const LINE = /^\s*(?:[-*>]\s+)?[*_`]*(STATUS|CHANGED_FILES|COMMIT_MESSAGE|TESTS|CONCERNS)[*_`]*\s*:\s*[*_`]*\s*(.*?)\s*$/;
+const LINE = /^\s*(?:[-*>]\s+)?[*_`]*(STATUS|CHANGED_FILES|COMMIT_MESSAGE|TESTS|CONCERNS)[*_`]*\s*:(?:\*\*|__)?\s*(.*?)\s*$/;
 
 export function isDone(status) {
   return status === "DONE" || status === "DONE_WITH_CONCERNS";
@@ -22,6 +22,17 @@ export function normalizePath(value) {
     .replace(/^[`"']+|[`"']+$/g, "")
     .replace(/\\/g, "/")
     .replace(/^\.\//, "");
+}
+
+function unwrap(value) {
+  let result = value.trim();
+  const wrapperRegex = /^(\*\*|__|`)(.*)\1$/;
+  while (true) {
+    const match = wrapperRegex.exec(result);
+    if (!match) break;
+    result = match[2].trim();
+  }
+  return result;
 }
 
 export function parseReport(message) {
@@ -40,7 +51,8 @@ export function parseReport(message) {
   if (!STATUSES.includes(status)) return { ok: false, error: `STATUS 값을 해석할 수 없습니다: ${values.STATUS}` };
 
   const changedFiles = parseFileList(values.CHANGED_FILES);
-  const commitMessage = isNone(values.COMMIT_MESSAGE) ? null : values.COMMIT_MESSAGE.trim();
+  const unwrappedCommitMessage = unwrap(values.COMMIT_MESSAGE);
+  const commitMessage = isNone(unwrappedCommitMessage) ? null : unwrappedCommitMessage;
   if (isDone(status) && changedFiles.length > 0 && commitMessage === null) {
     return { ok: false, error: "CHANGED_FILES가 있는데 COMMIT_MESSAGE가 none입니다" };
   }
@@ -49,8 +61,8 @@ export function parseReport(message) {
     status,
     changedFiles,
     commitMessage,
-    tests: values.TESTS.trim(),
-    concerns: isNone(values.CONCERNS) ? null : values.CONCERNS.trim()
+    tests: unwrap(values.TESTS),
+    concerns: isNone(unwrap(values.CONCERNS)) ? null : unwrap(values.CONCERNS)
   };
 }
 

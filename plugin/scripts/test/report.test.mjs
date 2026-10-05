@@ -122,3 +122,41 @@ test("불일치 정정 요청 문구에 양쪽 목록이 들어간다", () => {
   assert.match(text, /Changed but not reported: tests\/b\.py/);
   assert.match(text, /^STATUS: /m);
 });
+
+test("값을 감싼 백틱과 굵게 표시를 벗기고 값 안의 표시는 남긴다", () => {
+  const parsed1 = parseReport(report([
+    "STATUS: DONE",
+    "CHANGED_FILES: greet.py",
+    "COMMIT_MESSAGE: `feat: add x`",
+    "TESTS: none",
+    "CONCERNS: none"
+  ]));
+  assert.equal(parsed1.commitMessage, "feat: add x");
+
+  const parsed2 = parseReport(report([
+    "STATUS: DONE",
+    "CHANGED_FILES: greet.py",
+    "COMMIT_MESSAGE: **feat: add x**",
+    "TESTS: none",
+    "CONCERNS: none"
+  ]));
+  assert.equal(parsed2.commitMessage, "feat: add x");
+
+  const parsed3 = parseReport(report([
+    "STATUS: DONE",
+    "CHANGED_FILES: none",
+    "COMMIT_MESSAGE: none",
+    "TESTS: `node --test` — pass 12",
+    "CONCERNS: none"
+  ]));
+  assert.equal(parsed3.tests, "`node --test` — pass 12");
+
+  const parsed4 = parseReport(report([
+    "STATUS: DONE",
+    "CHANGED_FILES: none",
+    "COMMIT_MESSAGE: none",
+    "TESTS: none",
+    "CONCERNS: _wip_ thing"
+  ]));
+  assert.equal(parsed4.concerns, "_wip_ thing");
+});
