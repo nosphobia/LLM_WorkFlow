@@ -1,4 +1,8 @@
 // 토큰을 더하고, 진행 기록 폴더의 codex-calls.jsonl 합계를 낸다.
+import { EXIT } from "./pins.mjs";
+
+// 종료 코드 2는 Codex가 NEEDS_CONTEXT·BLOCKED를 보고한 것이라 실패가 아니라 멈춤으로 센다.
+const FAILURE_EXITS = [EXIT.FAILED, EXIT.LIMIT, EXIT.ENVIRONMENT];
 const TOKEN_FIELDS = ["input_tokens", "cached_input_tokens", "output_tokens", "reasoning_output_tokens", "total_tokens"];
 
 export function sumTokens(list) {
@@ -10,6 +14,8 @@ export function sumTokens(list) {
   }
   return total;
 }
+
+const sumField = (calls, field) => calls.reduce((sum, call) => sum + (Number(call[field]) || 0), 0);
 
 export function summarizeCalls(text) {
   const calls = text
@@ -31,8 +37,11 @@ export function summarizeCalls(text) {
   return {
     calls: calls.length,
     byRole,
-    failures: calls.filter((call) => call.exitCode !== 0).length,
-    corrections: calls.reduce((sum, call) => sum + (Number(call.corrections) || 0), 0),
+    failures: calls.filter((call) => FAILURE_EXITS.includes(call.exitCode)).length,
+    stops: calls.filter((call) => call.exitCode === EXIT.STOPPED).length,
+    corrections: sumField(calls, "corrections"),
+    formatCorrections: sumField(calls, "formatCorrections"),
+    mismatchCorrections: sumField(calls, "mismatchCorrections"),
     durationSec: calls.reduce((sum, call) => sum + (Number(call.durationSec) || 0), 0),
     tokens: sumTokens(calls.map((call) => call.tokens)),
     weeklyStart: calls.find((call) => call.weeklyStart !== null && call.weeklyStart !== undefined)?.weeklyStart ?? null,

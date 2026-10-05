@@ -128,6 +128,17 @@ test("STATUS 줄이 없으면 같은 대화에 한 번 정정을 요청한다", 
   assert.match(calls.runTurn[1].prompt, /could not be parsed/);
 });
 
+test("형식 위반 정정과 불일치 정정을 종류별로 센다", async () => {
+  const { run, calls } = setup({ replies: ["다 했습니다.", DONE("greet.py"), DONE()] });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(result.corrections, 2);
+  assert.equal(result.formatCorrections, 1);
+  assert.equal(result.mismatchCorrections, 1);
+  assert.equal(calls.lines[0].value.formatCorrections, 1);
+  assert.equal(calls.lines[0].value.mismatchCorrections, 1);
+});
+
 test("정정 뒤에도 형식 위반이면 커밋하지 않고 3", async () => {
   const { run, calls } = setup({ replies: ["다 했습니다.", "정말 다 했습니다."] });
   const { exitCode, result } = await run();

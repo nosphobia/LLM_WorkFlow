@@ -85,6 +85,12 @@ test("한도 오류를 알아본다", () => {
   assert.equal(isLimitError(null), false);
 });
 
+test("라이브러리 오류의 codexErrorInfo(camelCase)로도 한도 오류를 알아본다", () => {
+  assert.equal(isLimitError({ message: "x", codexErrorInfo: "usageLimitExceeded" }), true);
+  assert.equal(isLimitError({ message: "x", codexErrorInfo: "rateLimitExceeded" }), true);
+  assert.equal(isLimitError({ message: "x", codexErrorInfo: "other" }), false);
+});
+
 test("대화 ID로 세션 기록 파일을 찾는다", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-workflow-sessions-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

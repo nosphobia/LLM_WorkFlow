@@ -61,5 +61,5 @@ export function weeklyPercent(rateLimits) {
 
 export function isLimitError(error) {
   if (!error) return false;
-  return /usage[ _-]?limit|rate[ _-]?limit|quota/i.test(`${error.message ?? ""} ${error.info ?? ""}`);
+  return /usage[ _-]?limit|rate[ _-]?limit|quota/i.test(`${error.message ?? ""} ${error.info ?? ""} ${error.codexErrorInfo ?? ""}`);
 }

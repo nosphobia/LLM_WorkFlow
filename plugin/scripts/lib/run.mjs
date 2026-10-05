@@ -8,7 +8,7 @@ import { sumTokens } from "./usage.mjs";
 
 export async function runWrapper(options, deps) {
   const startedAt = deps.now();
-  const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, transientError: null, report: null, commit: null };
+  const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, formatCorrections: 0, mismatchCorrections: 0, transientError: null, report: null, commit: null };
   const finish = (exitCode, reason) => finalize(options, deps, state, startedAt, exitCode, reason);
 
   try {
@@ -33,6 +33,7 @@ export async function runWrapper(options, deps) {
     let report = parseReport(first.finalMessage);
     if (!report.ok) {
       state.corrections += 1;
+      state.formatCorrections += 1;
       const again = await runTurn(buildFormatCorrection(report.error), state.threadId);
       if (again.exit !== null) return finish(again.exit, again.reason);
       report = parseReport(again.finalMessage);
@@ -44,6 +45,7 @@ export async function runWrapper(options, deps) {
     let comparison = compareChangedFiles(report.changedFiles, deps.listChangedFiles(options.cwd));
     if (!comparison.match) {
       state.corrections += 1;
+      state.mismatchCorrections += 1;
       const again = await runTurn(buildMismatchCorrection(comparison), state.threadId);
       if (again.exit !== null) return finish(again.exit, again.reason);
       report = parseReport(again.finalMessage);
@@ -168,6 +170,8 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
     report: state.report,
     commit: state.commit,
     corrections: state.corrections,
+    formatCorrections: state.formatCorrections,
+    mismatchCorrections: state.mismatchCorrections,
     transientError: state.transientError,
     interrupt: state.interrupt ?? null,
     durationSec: Math.round((finishedAt - startedAt) / 1000),
@@ -192,6 +196,8 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
           exitCode,
           status: result.status,
           corrections: result.corrections,
+          formatCorrections: result.formatCorrections,
+          mismatchCorrections: result.mismatchCorrections,
           durationSec: result.durationSec,
           models: usage.models,
           tokens: usage.tokens,

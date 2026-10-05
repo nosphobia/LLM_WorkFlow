@@ -160,3 +160,16 @@ test("값을 감싼 백틱과 굵게 표시를 벗기고 값 안의 표시는 �
   ]));
   assert.equal(parsed4.concerns, "_wip_ thing");
 });
+
+test("값이 서로 다른 두 코드 스팬으로 시작하고 끝나면 감싸는 표시로 보지 않는다", () => {
+  const parsed = parseReport(report([
+    "STATUS: DONE",
+    "CHANGED_FILES: greet.py",
+    "COMMIT_MESSAGE: `farewell` added next to `greet`",
+    "TESTS: **a** and **b**",
+    "CONCERNS: **`wip`**"
+  ]));
+  assert.equal(parsed.commitMessage, "`farewell` added next to `greet`");
+  assert.equal(parsed.tests, "**a** and **b**");
+  assert.equal(parsed.concerns, "wip");
+});

@@ -24,13 +24,15 @@ export function normalizePath(value) {
     .replace(/^\.\//, "");
 }
 
+// 값 전체를 감싼 표시만 벗긴다. 같은 표시가 값 안에 또 나오면 서로 다른 두 조각이므로 벗기지 않는다.
+const WRAPPERS = [/^`([^`]*)`$/, /^\*\*((?:(?!\*\*).)*)\*\*$/, /^__((?:(?!__).)*)__$/];
+
 function unwrap(value) {
   let result = value.trim();
-  const wrapperRegex = /^(\*\*|__|`)(.*)\1$/;
   while (true) {
-    const match = wrapperRegex.exec(result);
+    const match = WRAPPERS.map((wrapper) => wrapper.exec(result)).find(Boolean);
     if (!match) break;
-    result = match[2].trim();
+    result = match[1].trim();
   }
   return result;
 }
