@@ -194,7 +194,7 @@ function main() {
   }
 
   const bad = callWrapper("bad-model", ["start", "--role", "check", "--task", "5", "--model", "no-such-model-xyz"], "Reply with OK.");
-  record("5. 실패 판별", bad.exitCode === EXIT.FAILED, `exit=${bad.exitCode} ${bad.result?.reason ?? bad.stderr}`);
+  record("5. 실패 판별", bad.exitCode === EXIT.FAILED && String(bad.result?.reason ?? "").startsWith("Codex 호출 실패") && bad.result?.corrections === 0, `exit=${bad.exitCode} ${bad.result?.reason ?? bad.stderr}`);
 
   const outsideFile = path.join(outsideDir, "probe.txt");
   const gitFile = path.join(repo, ".git", "llm-workflow-probe");
