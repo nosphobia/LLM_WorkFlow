@@ -1,6 +1,9 @@
 The final review of this whole branch found the issues listed in {{FINDINGS_PATH}}. Fix all of them in this one pass.
 
 Context: the approved spec {{SPEC_PATH}}, the plan {{PLAN_PATH}}, and the branch's changes {{DIFF_PATH}}.
+Global constraints that bind every task:
+{{GLOBAL_CONSTRAINTS}}
+
 For each finding about behavior, add or update a test that fails before your fix and passes after it. Run the full test suite once at the end.
 Write your report to {{REPORT_PATH}}: each finding, what you changed, the tests, the commands, and their output. If you believe a finding is wrong, leave that code unchanged and explain why in CONCERNS.
 

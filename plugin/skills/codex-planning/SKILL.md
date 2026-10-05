@@ -29,6 +29,7 @@ description: 승인된 명세로 구현 계획을 만들 때 superpowers:writing
 - 이어가기: `node <래퍼> resume --cwd <저장소> --thread <대화 ID> --prompt-file <지시 파일> --workspace <진행 기록 폴더> --role plan-fix --round <N>`
 - 선택: `--effort xhigh`(4~5라운드), `--timeout-min <분>`(기본 30)
 - 표준 출력 한 줄 요약에 종료 코드, 대화 ID, 커밋, 결과 파일 경로가 있다. 이유(`reason`)와 Codex 보고 전체(`report`)는 결과 파일(JSON)에 있다.
+- 새 대화(`start`)가 필요한데 커밋되지 않은 변경이 남아 있으면 래퍼가 시작을 거부한다(종료 코드 3). 이때는 변경을 버리거나 직접 커밋하지 않고 같은 대화를 이어간다(`resume`, 추론 강도를 올려야 하면 `--effort xhigh`). 이 선택은 `planning.md`에 `Ruling:`으로 기록한다.
 
 | 종료 코드 | 뜻 | 처리 |
 |---|---|---|

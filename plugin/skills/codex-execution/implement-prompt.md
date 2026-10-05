@@ -7,6 +7,9 @@ It is your requirements, with the exact values to use verbatim. The approved spe
 ## Context from the controller
 {{CONTEXT}}
 
+## Global constraints
+{{GLOBAL_CONSTRAINTS}}
+
 ## Rules
 - The design and the plan are approved. Do not brainstorm, do not write a new spec or plan, and do not ask design questions.
 - Implement exactly what the brief specifies. Follow test-driven development: write the failing test, run it and see it fail, implement, run it and see it pass.
