@@ -8,7 +8,7 @@ import { sumTokens } from "./usage.mjs";
 
 export async function runWrapper(options, deps) {
   const startedAt = deps.now();
-  const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, report: null, commit: null };
+  const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, transientError: null, report: null, commit: null };
   const finish = (exitCode, reason) => finalize(options, deps, state, startedAt, exitCode, reason);
 
   try {
@@ -108,8 +108,12 @@ export async function runWrapper(options, deps) {
       weeklyEnd: weeklyPercent(summary?.rateLimitsEnd)
     });
 
-    const failed = Boolean(outcome.timedOut || outcome.thrown || outcome.error) || outcome.status !== 0;
-    if (!failed) return { exit: null, threadId, finalMessage: outcome.finalMessage ?? "" };
+    const failed = Boolean(outcome.timedOut || outcome.thrown) || outcome.status !== 0;
+    if (!failed) {
+      // 재연결처럼 Codex가 재시도한 오류는 차례가 정상으로 끝났으면 실패가 아니다. 결과에만 남긴다.
+      if (outcome.error) state.transientError = String(outcome.error.message ?? outcome.error);
+      return { exit: null, threadId, finalMessage: outcome.finalMessage ?? "" };
+    }
     const error = outcome.error ?? summary?.error ?? null;
     if (!outcome.timedOut && (summary?.limitReached || isLimitError(outcome.error) || isLimitError(summary?.error))) {
       return { exit: EXIT.LIMIT, reason: `한도 도달: ${error?.message ?? "세션 기록의 한도 정보"}` };
@@ -139,6 +143,7 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
     report: state.report,
     commit: state.commit,
     corrections: state.corrections,
+    transientError: state.transientError,
     durationSec: Math.round((finishedAt - startedAt) / 1000),
     usage,
     finishedAt: new Date(finishedAt).toISOString()

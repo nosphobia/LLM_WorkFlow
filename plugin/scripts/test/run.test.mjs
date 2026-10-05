@@ -193,6 +193,24 @@ test("차례가 정상으로 끝났으면 한도 정보가 도달을 가리켜�
   assert.equal(calls.commit.length, 1);
 });
 
+test("재시도된 일시 오류가 있어도 정상 완료된 차례는 커밋하고 0", async () => {
+  const { run, calls } = setup({
+    replies: [
+      () => ({
+        status: 0,
+        threadId: "thread-1",
+        turnId: "turn-1",
+        finalMessage: DONE(),
+        error: { message: "Reconnecting... 1/5 (stream disconnected)" }
+      })
+    ]
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(calls.commit.length, 1);
+  assert.match(result.transientError, /Reconnecting/);
+});
+
 test("제한 시간을 넘기면 Codex 실행을 중단시키고 3", async () => {
   const { run, calls } = setup({
     options: { timeoutMin: 0.001 },
