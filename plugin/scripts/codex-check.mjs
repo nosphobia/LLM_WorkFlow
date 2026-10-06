@@ -59,7 +59,7 @@ const NETWORK_COMMAND_PROMPT = [
 
 const TIMEOUT_PROMPT = [
   "This is a timeout check. Do not change any files yourself.",
-  "Run this command exactly once and wait for it to finish: python -c \"import time; time.sleep(90); open('late.txt','w').write('x')\"",
+  "Run this command exactly once and wait for it to finish: python -c \"open('started.txt','w').write('x'); import time; time.sleep(90); open('late.txt','w').write('x')\"",
   "End your final message with exactly these five lines:",
   "STATUS: DONE",
   "CHANGED_FILES: late.txt",
@@ -253,12 +253,21 @@ function main() {
   // 9번은 마지막에 한다: 래퍼가 중단 뒤 2분을 기다리며 바뀐 파일을 기록하므로 호출이 오래 걸린다.
   const late = callWrapper("timeout", ["start", "--role", "check", "--task", "9", "--timeout-min", "0.5"], TIMEOUT_PROMPT);
   const lateExists = fs.existsSync(path.join(repo, "late.txt"));
+  const startedExists = fs.existsSync(path.join(repo, "started.txt"));
   const lateDetected = late.result?.lateChanges?.includes("late.txt") === true;
   const interrupted = late.result?.interrupt?.interrupted === true;
+  const reason = String(late.result?.reason ?? "");
+  // 명령이 실제로 시작됐고(started.txt) 감시가 끝까지 돌았을 때만 통과한다. late.txt가 없다는 것만으로는 아무것도 증명하지 못한다.
   record(
     "9. 시간 초과 중단",
-    late.exitCode === EXIT.FAILED && String(late.result?.reason ?? "").includes("제한 시간") && interrupted && (lateDetected || !lateExists),
-    `exit=${late.exitCode} 중단=${interrupted} late.txt=${lateExists ? "있음" : "없음"} 탐지=${lateDetected ? "예" : "아니오"} (중단된 명령이 계속 도는 것은 알려진 한계)`
+    late.exitCode === EXIT.FAILED &&
+      reason.includes("제한 시간") &&
+      interrupted &&
+      Array.isArray(late.result?.lateChanges) &&
+      /바뀐 파일 \d+개/.test(reason) &&
+      startedExists &&
+      (lateDetected || !lateExists),
+    `exit=${late.exitCode} 중단=${interrupted} started.txt=${startedExists ? "있음" : "없음"} late.txt=${lateExists ? "있음" : "없음"} 탐지=${lateDetected ? "예" : "아니오"} (중단된 명령이 계속 도는 것은 알려진 한계) ${reason || late.stderr}`
   );
 
   finishAll();

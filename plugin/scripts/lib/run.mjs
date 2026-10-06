@@ -99,16 +99,22 @@ export async function runWrapper(options, deps) {
       state.interrupt = await requestInterrupt(deps, { cwd: options.cwd, threadId: ids.threadId, turnId: ids.turnId });
       // Windows에서는 Codex가 띄운 명령이 중단 뒤에도 계속 돌 수 있어, 잠시 기다린 뒤 바뀐 파일을 기록한다.
       const watchMs = deps.postTimeoutWatchMs ?? 120_000;
-      const before = deps.snapshotRepo(options.cwd);
-      await deps.sleep(watchMs);
-      const after = deps.snapshotRepo(options.cwd);
-      state.lateChanges = diffSnapshots(before, after);
+      let watchNote;
+      try {
+        const before = deps.snapshotRepo(options.cwd);
+        await deps.sleep(watchMs);
+        const after = deps.snapshotRepo(options.cwd);
+        state.lateChanges = diffSnapshots(before, after);
+        watchNote = `중단 뒤 ${Math.round(watchMs / 1000)}초 동안 바뀐 파일 ${state.lateChanges.length}개`;
+      } catch (error) {
+        watchNote = `중단 뒤 변경 확인 실패: ${error?.message ?? error}`;
+      }
       outcome = {
         timedOut: true,
         status: 1,
         threadId: ids.threadId,
         turnId: ids.turnId,
-        error: { message: `제한 시간 ${options.timeoutMin}분 초과 (중단 ${state.interrupt.interrupted ? "성공" : "실패"}: ${state.interrupt.detail ?? "-"}); 중단 뒤 ${Math.round(watchMs / 1000)}초 동안 바뀐 파일 ${state.lateChanges.length}개` }
+        error: { message: `제한 시간 ${options.timeoutMin}분 초과 (중단 ${state.interrupt.interrupted ? "성공" : "실패"}: ${state.interrupt.detail ?? "-"}); ${watchNote}` }
       };
     }
 

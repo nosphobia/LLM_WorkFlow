@@ -287,6 +287,25 @@ test("시간 초과 뒤 2분 동안 바뀐 파일을 기록한다", async () => 
   assert.ok(result.warnings.some((warning) => /late\.txt/.test(warning)));
 });
 
+test("시간 초과 뒤 변경 확인이 실패해도 제한 시간 결과를 남긴다", async () => {
+  const { run } = setup({
+    options: { timeoutMin: 0.001 },
+    replies: [hangAfterStart],
+    deps: {
+      interrupt: async () => ({ attempted: true, interrupted: true, detail: "ok" }),
+      snapshotRepo: () => {
+        throw new Error("git status failed");
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.match(result.reason, /제한 시간/);
+  assert.match(result.reason, /변경 확인 실패: git status failed/);
+  assert.equal(result.lateChanges, null);
+  assert.equal(result.interrupt.interrupted, true);
+});
+
 test("중단 요청이 예외를 던져도 제한 시간 결과와 대화 ID를 남긴다", async () => {
   const { run } = setup({
     options: { timeoutMin: 0.001 },
