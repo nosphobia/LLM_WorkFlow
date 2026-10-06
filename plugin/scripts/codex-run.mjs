@@ -10,7 +10,7 @@ import { collectEnvironmentProblems } from "./lib/environment.mjs";
 import { listChangedFiles, commitFiles, buildSnapshot } from "./lib/git-changes.mjs";
 import { findRolloutFile, summarizeTurn } from "./lib/rollout.mjs";
 import { runWrapper } from "./lib/run.mjs";
-import { shutdownBroker } from "./lib/broker.mjs";
+import { shutdownBroker, isProcessAlive } from "./lib/broker.mjs";
 
 const parsed = parseCliArgs(process.argv.slice(2));
 if (!parsed.ok) {
@@ -37,25 +37,26 @@ function readText(file) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 if (options.action === "shutdown") {
-  const broker = await import(pathToFileURL(paths.codexBrokerLib).href);
+  let broker;
+  try {
+    broker = await import(pathToFileURL(paths.codexBrokerLib).href);
+  } catch (error) {
+    console.error(`codex-run shutdown: Codex 플러그인의 브로커 라이브러리를 불러올 수 없습니다: ${error.message}`);
+    process.exit(EXIT.ENVIRONMENT);
+  }
   const result = await shutdownBroker(options.cwd, {
     loadBrokerSession: broker.loadBrokerSession,
     sendBrokerShutdown: broker.sendBrokerShutdown,
     teardownBrokerSession: broker.teardownBrokerSession,
     clearBrokerSession: broker.clearBrokerSession,
-    isAlive: (pid) => {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch (error) {
-        return error.code === "EPERM";
-      }
-    },
+    isAlive: (pid) => isProcessAlive(pid),
     sleep,
     now: () => Date.now()
   });
   console.log(`codex-run shutdown stopped=${result.stopped} exited=${result.exited ?? "-"} pid=${result.pid ?? "-"} detail=${result.detail}`);
-  process.exit(result.exited === false ? EXIT.FAILED : EXIT.OK);
+  // 브로커가 없으면 0, 닫고 종료까지 확인했으면 0, 그 밖(끝나지 않음, 확인 불가)은 3이다.
+  const noBroker = !result.stopped && result.pid === null;
+  process.exit(noBroker || result.exited === true ? EXIT.OK : EXIT.FAILED);
 }
 
 const deps = {

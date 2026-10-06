@@ -1,65 +1,90 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { shutdownBroker } from "../lib/broker.mjs";
+import { shutdownBroker, isProcessAlive } from "../lib/broker.mjs";
 
 const SESSION = { endpoint: "pipe:\\\\.\\pipe\\cxc-1", pidFile: "D:/x/broker.pid", logFile: "D:/x/broker.log", sessionDir: "D:/x", pid: 4242 };
 
 function setup({ session = SESSION, aliveChecks = [false], deps = {} } = {}) {
-  const calls = { send: [], teardown: [], clear: [], sleep: 0 };
+  const log = [];
   const alive = [...aliveChecks];
   let clock = 0;
   const base = {
-    loadBrokerSession: () => session,
-    sendBrokerShutdown: async (endpoint) => {
-      calls.send.push(endpoint);
+    loadBrokerSession: (cwd) => {
+      log.push(["load", cwd]);
+      return session;
     },
-    teardownBrokerSession: (args) => calls.teardown.push(args),
-    clearBrokerSession: (cwd) => calls.clear.push(cwd),
-    isAlive: () => (alive.length > 1 ? alive.shift() : alive[0]),
+    sendBrokerShutdown: async (endpoint) => {
+      log.push(["send", endpoint]);
+    },
+    teardownBrokerSession: (args) => log.push(["teardown", args]),
+    clearBrokerSession: (cwd) => log.push(["clear", cwd]),
+    isAlive: (pid) => {
+      const value = alive.length > 1 ? alive.shift() : alive[0];
+      log.push(["alive", pid, value]);
+      return value;
+    },
     sleep: async (ms) => {
-      calls.sleep += 1;
       clock += ms;
     },
     now: () => clock,
     ...deps
   };
-  return { run: () => shutdownBroker("D:/repo", base), calls };
+  return { run: () => shutdownBroker("D:/repo", base), log };
 }
 
+const kinds = (log) => log.map(([kind]) => kind);
+
 test("브로커가 없으면 아무것도 하지 않는다", async () => {
-  const { run, calls } = setup({ session: null });
+  const { run, log } = setup({ session: null });
   const result = await run();
   assert.equal(result.stopped, false);
+  assert.equal(result.pid, null);
   assert.match(result.detail, /브로커가 없습니다/);
-  assert.equal(calls.send.length, 0);
-  assert.equal(calls.teardown.length, 0);
+  assert.deepEqual(log, [["load", "D:/repo"]]);
 });
 
-test("종료 요청을 보내고 프로세스가 끝날 때까지 기다린 뒤 기록을 정리한다", async () => {
-  const { run, calls } = setup({ aliveChecks: [true, true, false] });
+test("종료 요청 → 프로세스 종료 확인 → 기록 정리 순서로 진행한다", async () => {
+  const { run, log } = setup({ aliveChecks: [true, true, false] });
   const result = await run();
-  assert.deepEqual(calls.send, [SESSION.endpoint]);
-  assert.equal(result.stopped, true);
-  assert.equal(result.exited, true);
-  assert.equal(result.pid, 4242);
-  assert.equal(calls.sleep, 2);
-  assert.equal(calls.teardown.length, 1);
-  assert.equal(calls.teardown[0].killProcess, undefined);
-  assert.equal(calls.teardown[0].pid, 4242);
-  assert.deepEqual(calls.clear, ["D:/repo"]);
+  assert.deepEqual(kinds(log), ["load", "send", "alive", "alive", "alive", "teardown", "clear"]);
+  assert.equal(log[1][1], SESSION.endpoint);
+  assert.deepEqual(log[5][1], {
+    endpoint: SESSION.endpoint,
+    pidFile: SESSION.pidFile,
+    logFile: SESSION.logFile,
+    sessionDir: SESSION.sessionDir,
+    pid: 4242
+  });
+  assert.deepEqual(log[6], ["clear", "D:/repo"]);
+  assert.deepEqual(result, { stopped: true, exited: true, pid: 4242, detail: "종료 요청을 보냈습니다" });
 });
 
-test("프로세스가 시간 안에 끝나지 않으면 exited가 false다", async () => {
-  const { run, calls } = setup({ aliveChecks: [true], deps: { exitWaitMs: 1_000 } });
+test("프로세스가 시간 안에 끝나지 않으면 기록을 남기고 PID를 알린다", async () => {
+  const { run, log } = setup({ aliveChecks: [true], deps: { exitWaitMs: 1_000 } });
   const result = await run();
-  assert.equal(result.stopped, true);
+  assert.equal(result.stopped, false);
   assert.equal(result.exited, false);
-  assert.equal(calls.teardown.length, 1);
-  assert.deepEqual(calls.clear, ["D:/repo"]);
+  assert.equal(result.pid, 4242);
+  assert.match(result.detail, /기록을 남겼습니다 \(PID 4242\)/);
+  assert.ok(!kinds(log).includes("teardown"));
+  assert.ok(!kinds(log).includes("clear"));
 });
 
-test("종료 요청이 실패해도 기록은 정리하고 이유를 남긴다", async () => {
-  const { run, calls } = setup({
+test("종료 요청이 응답하지 않으면 시간 상한 뒤 종료 확인으로 넘어간다", async () => {
+  const { run } = setup({
+    deps: {
+      sendTimeoutMs: 20,
+      sendBrokerShutdown: () => new Promise(() => {})
+    }
+  });
+  const result = await run();
+  assert.match(result.detail, /응답 없음/);
+  assert.equal(result.exited, true);
+  assert.equal(result.stopped, true);
+});
+
+test("종료 요청이 실패해도 종료 확인과 기록 정리는 한다", async () => {
+  const { run, log } = setup({
     deps: {
       sendBrokerShutdown: async () => {
         throw new Error("pipe closed");
@@ -68,13 +93,22 @@ test("종료 요청이 실패해도 기록은 정리하고 이유를 남긴다",
   });
   const result = await run();
   assert.match(result.detail, /종료 요청 실패: pipe closed/);
-  assert.equal(calls.teardown.length, 1);
-  assert.deepEqual(calls.clear, ["D:/repo"]);
+  assert.ok(kinds(log).includes("teardown"));
 });
 
-test("기록에 pid가 없으면 기다리지 않는다", async () => {
-  const { run, calls } = setup({ session: { ...SESSION, pid: null } });
+test("기록에 pid가 없으면 종료를 확인할 수 없으므로 exited가 null이다", async () => {
+  const { run, log } = setup({ session: { ...SESSION, pid: null } });
   const result = await run();
   assert.equal(result.exited, null);
-  assert.equal(calls.sleep, 0);
+  assert.ok(!kinds(log).includes("alive"));
+});
+
+test("프로세스 생존 확인: 없으면 false, 권한 오류는 살아 있는 것으로 본다", () => {
+  assert.equal(isProcessAlive(1, () => true), true);
+  assert.equal(isProcessAlive(1, () => {
+    throw Object.assign(new Error("no such process"), { code: "ESRCH" });
+  }), false);
+  assert.equal(isProcessAlive(1, () => {
+    throw Object.assign(new Error("denied"), { code: "EPERM" });
+  }), true);
 });

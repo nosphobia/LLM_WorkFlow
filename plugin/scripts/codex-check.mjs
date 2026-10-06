@@ -185,6 +185,17 @@ function main() {
   record("1. 환경 점검", check.status === EXIT.OK, (check.stdout || check.stderr || "").trim());
   if (check.status !== EXIT.OK) return finishAll();
 
+  // 2~9번 중 예외가 나도 10번(브로커 정리)은 반드시 한다.
+  try {
+    runCodexItems();
+  } catch (error) {
+    record("점검 중 예외", false, String(error?.stack ?? error));
+  }
+  closeBroker();
+  finishAll();
+}
+
+function runCodexItems() {
   const impl = callWrapper("implement", ["start", "--role", "check", "--task", "1"], IMPLEMENT_PROMPT);
   const committed = impl.result?.commit ? git("show", "--name-only", "--format=", "HEAD").split(/\r?\n/).filter(Boolean).sort() : [];
   const model = impl.result?.commit ? trailerModel(git("log", "-1", "--format=%B")) : null;
@@ -274,16 +285,17 @@ function main() {
     `exit=${late.exitCode} 중단=${interrupted} started.txt=${startedExists ? "있음" : "없음"} late.txt=${lateExists ? "있음" : "없음"} 탐지=${lateDetected ? "예" : "아니오"} (중단된 명령이 계속 도는 것은 알려진 한계) ${reason || late.stderr}`
   );
 
-  // 10번: 이 임시 저장소용으로 뜬 Codex 브로커를 닫는다. 점검 세션의 폴더가 아니라서 Codex 플러그인이 대신 닫아 주지 않는다.
+}
+
+// 10번: 이 임시 저장소용으로 뜬 Codex 브로커를 닫는다. 점검 세션의 폴더가 아니라서 Codex 플러그인이 대신 닫아 주지 않는다.
+function closeBroker() {
   const shutdown = spawnSync(process.execPath, [wrapper, "shutdown", "--cwd", repo], { encoding: "utf8", timeout: 60_000 });
   const shutdownLine = (shutdown.stdout || shutdown.stderr || "").trim();
   record(
     "10. 브로커 정리",
-    shutdown.status === EXIT.OK && shutdownLine.includes("stopped=true") && shutdownLine.includes("exited=true"),
-    shutdownLine || `exit=${shutdown.status}`
+    shutdown.status === EXIT.OK && /^codex-run shutdown stopped=true exited=true /m.test(shutdownLine),
+    shutdownLine || `exit=${shutdown.status} ${shutdown.error?.message ?? ""}`.trim()
   );
-
-  finishAll();
 }
 
 main();
