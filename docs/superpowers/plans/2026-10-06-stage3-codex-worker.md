@@ -2859,10 +2859,10 @@ Expected: 종료 코드 0, `codex-run exit=0 ... reason=환경 점검 통과`
 
 - [ ] **Step 6: 연결부 점검 실행**
 
-Codex를 실제로 5번 부르므로 몇 분 걸린다(시간 초과 점검에만 2분 이상). Bash 백그라운드 실행으로 돌리고 끝났다는 알림을 기다린다.
+Codex를 실제로 6번 부르므로 몇 분 걸린다(시간 초과 점검에만 약 3분). Bash 백그라운드 실행으로 돌리고 끝났다는 알림을 기다린다.
 
 Run: `node plugin/scripts/codex-check.mjs`
-Expected: 종료 코드 0, 여덟 줄 모두 `[통과]`. 하나라도 `[실패]`면 출력 전체를 사용자에게 보고하고 멈춘다. 테스트나 판정 기준을 고쳐서 통과시키지 않는다. 원인 조사는 superpowers:systematic-debugging으로 한다.
+Expected: 종료 코드 0, 아홉 줄 모두 `[통과]`. 하나라도 `[실패]`면 출력 전체를 사용자에게 보고하고 멈춘다. 테스트나 판정 기준을 고쳐서 통과시키지 않는다. 원인 조사는 superpowers:systematic-debugging으로 한다.
 
 - [ ] **Step 7: 탐색 보고서에 고정 후 점검 결과를 덧붙인다**
 
@@ -2876,7 +2876,7 @@ Expected: 종료 코드 0, 여덟 줄 모두 `[통과]`. 하나라도 `[실패]`
 - 고정한 버전: Codex 플러그인 1.0.4 (`807e03a`), Superpowers Claude Code 쪽 6.4.1 (`5bf4e78`), Codex 쪽 6.4.1 (마켓플레이스 `<Step 4에서 쓴 이름>`, 커밋 `5bf4e78`)
 - Codex CLI: <codex --version 출력>
 
-<codex-check.mjs가 출력한 [통과]/[실패] 여덟 줄을 그대로 붙인다>
+<codex-check.mjs가 출력한 [통과]/[실패] 아홉 줄을 그대로 붙인다>
 
 - 임시 폴더 쓰기: Codex 기본 정책(`exclude_tmpdir_env_var: false`)상 OS 임시 폴더 쓰기는 허용되는 것으로 보인다. 점검 6번은 임시 폴더가 아닌 `plugin/.check-outside/`로 저장소 밖 쓰기를 확인했다.
 ```

@@ -35,6 +35,15 @@
 
 각 단계는 이전 단계가 실제로 잘 돌아가는 것을 확인한 뒤에만 넘어간다. 단계가 바뀌면 위 "현재 단계"를 사용자 확인 후 갱신한다.
 
+## 운영 방식
+
+- 설치된 `llm-workflow` 플러그인은 이 폴더의 `plugin/`을 실시간으로 읽는다. 새 세션은 시작할 때 이 폴더의 그 순간 상태를 불러온다.
+- 이 폴더(`D:\Work\LLM_Project\LLM_WorkFlow`)는 운영 폴더이고 항상 main 브랜치로 둔다. **LLM_WorkFlow 운영 폴더(main)에서는 직접 수정하지 않는다.**
+- 개발은 별도 worktree(`D:\Work\LLM_Project\LLM_WorkFlow-dev`)의 작업 브랜치에서 한다. main에 병합하는 것이 배포다.
+- 배포 전 시험: 개발 worktree에서 단위 테스트(`node --test "plugin/scripts/test/*.test.mjs"`)와 연결부 점검(`node plugin/scripts/codex-check.mjs`)을 돌린다. 스킬 동작은 시험용 프로젝트에서 `claude --plugin-dir D:\Work\LLM_Project\LLM_WorkFlow-dev\plugin`으로 세션을 띄워 확인한다. 그 세션에서는 개발 사본이 설치된 플러그인을 대신하고, 다른 세션은 운영 버전을 그대로 쓴다.
+- 배포 후: 운영 폴더에서 연결부 점검을 다시 돌린다.
+- 예외: 3단계 병합 전까지는 운영 폴더의 `stage3-design` 브랜치에서 3단계를 마무리한다.
+
 ## 소통
 
 - 사용자와는 한국어로 대화한다. 문서도 한국어로 쓴다.
