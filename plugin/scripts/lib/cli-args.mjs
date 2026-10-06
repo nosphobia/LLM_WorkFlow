@@ -3,11 +3,11 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { DEFAULT_TIMEOUT_MIN, EFFORTS, ROLES } from "./pins.mjs";
 
-const ACTIONS = ["check", "start", "resume"];
+const ACTIONS = ["check", "start", "resume", "shutdown"];
 
 export function parseCliArgs(argv, now = Date.now()) {
   const [action, ...rest] = argv;
-  if (!ACTIONS.includes(action)) return fail("첫 인자는 check, start, resume 중 하나여야 합니다");
+  if (!ACTIONS.includes(action)) return fail("첫 인자는 check, start, resume, shutdown 중 하나여야 합니다");
 
   let values;
   try {
@@ -46,7 +46,7 @@ export function parseCliArgs(argv, now = Date.now()) {
     if (!(minutes > 0)) return fail("--timeout-min은 0보다 큰 수여야 합니다");
     options.timeoutMin = minutes;
   }
-  if (action === "check") return { ok: true, options };
+  if (action === "check" || action === "shutdown") return { ok: true, options };
 
   for (const key of ["prompt-file", "workspace", "role"]) {
     if (!values[key]) return fail(`--${key}가 필요합니다`);

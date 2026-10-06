@@ -115,7 +115,8 @@ Codex 작업은 한 번에 하나만 돌린다.
    - 사용자에게 Claude 주간 사용률을 받아 `usage-checkpoints.md`에 `측정점 3 (구현 직후)`로 적는다.
 4. `workflow/usage-log.md`에 합계 한 줄을 쓰고 커밋한다: 날짜, 기능, 작업 규모, 수정 루프 횟수(작업별 라운드 합, 최종 수정이 있었으면 1을 더함), Claude 사용량(측정점 1 → 측정점 3), Codex 사용량(합계의 주간 처음 → 끝), 메모(측정점 2 값, Codex 총 토큰).
 5. 진행 기록 폴더는 지우지 않는다.
-6. 이후 QA, 위키, 병합은 프로젝트 규칙을 따른다. 병합 방식 선택은 `superpowers:finishing-a-development-branch`를 쓴다.
+6. Codex 브로커를 닫는다: `node <래퍼> shutdown --cwd <저장소>`. 브로커는 저장소마다 하나씩 떠서 래퍼 호출이 재사용한다. 이 세션이 그 저장소에서 끝나면 Codex 플러그인도 닫지만, 확실히 정리하려고 여기서 닫는다.
+7. 이후 QA, 위키, 병합은 프로젝트 규칙을 따른다. 병합 방식 선택은 `superpowers:finishing-a-development-branch`를 쓴다.
 
 ## 하지 않는 것
 

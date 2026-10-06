@@ -20,6 +20,7 @@ export function defaultPaths(home = os.homedir()) {
   return {
     installedPlugins: path.join(home, ".claude", "plugins", "installed_plugins.json"),
     codexLib: path.join(cache, "openai-codex", "codex", PINS.codexPlugin.version, "scripts", "lib", "codex.mjs"),
+    codexBrokerLib: path.join(cache, "openai-codex", "codex", PINS.codexPlugin.version, "scripts", "lib", "broker-lifecycle.mjs"),
     superpowersRoot: path.join(cache, "claude-plugins-official", "superpowers", PINS.claudeSuperpowers.version),
     codexConfig: path.join(home, ".codex", "config.toml"),
     codexSessions: path.join(home, ".codex", "sessions")

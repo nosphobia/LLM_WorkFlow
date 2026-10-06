@@ -20,6 +20,13 @@ test("check는 --cwd만 있으면 된다", () => {
   assert.equal(parsed.options.timeoutMin, 30);
 });
 
+test("shutdown은 --cwd만 있으면 된다", () => {
+  const parsed = parseCliArgs(["shutdown", "--cwd", repo]);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.options.action, "shutdown");
+  assert.equal(parsed.options.cwd, repo);
+});
+
 test("--cwd가 없거나 모르는 인자가 있으면 오류다", () => {
   assert.match(parseCliArgs(["check"]).error, /--cwd/);
   assert.equal(parseCliArgs(["check", "--cwd", repo, "--bogus", "1"]).ok, false);

@@ -10,6 +10,7 @@ import { collectEnvironmentProblems } from "./lib/environment.mjs";
 import { listChangedFiles, commitFiles, buildSnapshot } from "./lib/git-changes.mjs";
 import { findRolloutFile, summarizeTurn } from "./lib/rollout.mjs";
 import { runWrapper } from "./lib/run.mjs";
+import { shutdownBroker } from "./lib/broker.mjs";
 
 const parsed = parseCliArgs(process.argv.slice(2));
 if (!parsed.ok) {
@@ -34,6 +35,28 @@ function readText(file) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+if (options.action === "shutdown") {
+  const broker = await import(pathToFileURL(paths.codexBrokerLib).href);
+  const result = await shutdownBroker(options.cwd, {
+    loadBrokerSession: broker.loadBrokerSession,
+    sendBrokerShutdown: broker.sendBrokerShutdown,
+    teardownBrokerSession: broker.teardownBrokerSession,
+    clearBrokerSession: broker.clearBrokerSession,
+    isAlive: (pid) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch (error) {
+        return error.code === "EPERM";
+      }
+    },
+    sleep,
+    now: () => Date.now()
+  });
+  console.log(`codex-run shutdown stopped=${result.stopped} exited=${result.exited ?? "-"} pid=${result.pid ?? "-"} detail=${result.detail}`);
+  process.exit(result.exited === false ? EXIT.FAILED : EXIT.OK);
+}
 
 const deps = {
   now: () => Date.now(),

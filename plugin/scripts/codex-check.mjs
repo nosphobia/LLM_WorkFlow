@@ -174,7 +174,7 @@ function finishAll() {
   for (const item of results) console.log(`[${item.pass ? "통과" : "실패"}] ${item.name} — ${item.detail}`);
   console.log("");
   console.log(`임시 저장소는 지우지 않았습니다: ${root}`);
-  process.exit(results.length === 9 && results.every((item) => item.pass) ? 0 : 1);
+  process.exit(results.length === 10 && results.every((item) => item.pass) ? 0 : 1);
 }
 
 function main() {
@@ -272,6 +272,15 @@ function main() {
       startedExists &&
       (lateDetected || !lateExists),
     `exit=${late.exitCode} 중단=${interrupted} started.txt=${startedExists ? "있음" : "없음"} late.txt=${lateExists ? "있음" : "없음"} 탐지=${lateDetected ? "예" : "아니오"} (중단된 명령이 계속 도는 것은 알려진 한계) ${reason || late.stderr}`
+  );
+
+  // 10번: 이 임시 저장소용으로 뜬 Codex 브로커를 닫는다. 점검 세션의 폴더가 아니라서 Codex 플러그인이 대신 닫아 주지 않는다.
+  const shutdown = spawnSync(process.execPath, [wrapper, "shutdown", "--cwd", repo], { encoding: "utf8", timeout: 60_000 });
+  const shutdownLine = (shutdown.stdout || shutdown.stderr || "").trim();
+  record(
+    "10. 브로커 정리",
+    shutdown.status === EXIT.OK && shutdownLine.includes("stopped=true") && shutdownLine.includes("exited=true"),
+    shutdownLine || `exit=${shutdown.status}`
   );
 
   finishAll();
