@@ -2,13 +2,14 @@
 import path from "node:path";
 import { EXIT, USAGE_FILE } from "./pins.mjs";
 import { parseReport, isDone, buildFormatCorrection, buildMismatchCorrection } from "./report.mjs";
-import { compareChangedFiles, buildCommitMessage } from "./git-changes.mjs";
+import { compareChangedFiles, buildCommitMessage, diffSnapshots } from "./git-changes.mjs";
+import { findNetworkCommands } from "./network.mjs";
 import { isLimitError, weeklyPercent } from "./rollout.mjs";
 import { sumTokens } from "./usage.mjs";
 
 export async function runWrapper(options, deps) {
   const startedAt = deps.now();
-  const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, formatCorrections: 0, mismatchCorrections: 0, transientError: null, report: null, commit: null };
+  const state = { threadId: options.threadId ?? null, turns: [], corrections: 0, formatCorrections: 0, mismatchCorrections: 0, transientError: null, networkCommands: [], lateChanges: null, report: null, commit: null };
   const finish = (exitCode, reason) => finalize(options, deps, state, startedAt, exitCode, reason);
 
   try {
@@ -96,12 +97,18 @@ export async function runWrapper(options, deps) {
     if (outcome.timedOut) {
       if (ids.threadId) state.threadId = ids.threadId;
       state.interrupt = await requestInterrupt(deps, { cwd: options.cwd, threadId: ids.threadId, turnId: ids.turnId });
+      // Windows에서는 Codex가 띄운 명령이 중단 뒤에도 계속 돌 수 있어, 잠시 기다린 뒤 바뀐 파일을 기록한다.
+      const watchMs = deps.postTimeoutWatchMs ?? 120_000;
+      const before = deps.snapshotRepo(options.cwd);
+      await deps.sleep(watchMs);
+      const after = deps.snapshotRepo(options.cwd);
+      state.lateChanges = diffSnapshots(before, after);
       outcome = {
         timedOut: true,
         status: 1,
         threadId: ids.threadId,
         turnId: ids.turnId,
-        error: { message: `제한 시간 ${options.timeoutMin}분 초과 (중단 ${state.interrupt.interrupted ? "성공" : "실패"}: ${state.interrupt.detail ?? "-"})` }
+        error: { message: `제한 시간 ${options.timeoutMin}분 초과 (중단 ${state.interrupt.interrupted ? "성공" : "실패"}: ${state.interrupt.detail ?? "-"}); 중단 뒤 ${Math.round(watchMs / 1000)}초 동안 바뀐 파일 ${state.lateChanges.length}개` }
       };
     }
 
@@ -109,6 +116,7 @@ export async function runWrapper(options, deps) {
     const turnId = outcome.turnId ?? ids.turnId ?? null;
     if (threadId) state.threadId = threadId;
     const summary = threadId && turnId ? await deps.readTurnSummary(threadId, turnId) : null;
+    for (const found of findNetworkCommands(summary?.commands ?? [])) state.networkCommands.push({ ...found, turnId });
     state.turns.push({
       turnId,
       model: summary?.model ?? null,
@@ -173,6 +181,12 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
     formatCorrections: state.formatCorrections,
     mismatchCorrections: state.mismatchCorrections,
     transientError: state.transientError,
+    networkCommands: state.networkCommands,
+    lateChanges: state.lateChanges,
+    warnings: [
+      ...state.networkCommands.map((item) => `네트워크 명령 감지 (${item.matches.join(", ")}): ${item.command}`),
+      ...(state.lateChanges?.length > 0 ? [`중단 뒤 바뀐 파일: ${state.lateChanges.join(", ")}`] : [])
+    ],
     interrupt: state.interrupt ?? null,
     durationSec: Math.round((finishedAt - startedAt) / 1000),
     usage,
@@ -198,6 +212,8 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
           corrections: result.corrections,
           formatCorrections: result.formatCorrections,
           mismatchCorrections: result.mismatchCorrections,
+          networkCommands: result.networkCommands.length,
+          lateChanges: result.lateChanges?.length ?? null,
           durationSec: result.durationSec,
           models: usage.models,
           tokens: usage.tokens,
@@ -220,6 +236,7 @@ export function formatSummary(result, out) {
     `thread=${result.threadId ?? "-"}`,
     `commit=${result.commit ?? "-"}`,
     `corrections=${result.corrections}`,
+    `warnings=${result.warnings.length}`,
     `tokens=${result.usage.tokens?.total_tokens ?? "-"}`,
     `weekly=${weekly}`,
     `result=${out ?? "-"}`,

@@ -1,4 +1,4 @@
-// 마지막 커밋 이후의 변경 파일을 읽고, Codex가 보고한 파일만 커밋한다.
+// 마지막 커밋 이후의 변경 파일을 읽고, Codex가 보고한 파일만 커밋한다. 시간 초과 뒤 변경 감시용 스냅샷도 만든다.
 import { execFileSync } from "node:child_process";
 import { normalizePath } from "./report.mjs";
 
@@ -44,4 +44,18 @@ export function commitFiles(repoDir, files, message) {
   git(repoDir, ["add", "-A", "--", ...files]);
   git(repoDir, ["commit", "-q", "-F", "-"], { input: message });
   return git(repoDir, ["rev-parse", "--short", "HEAD"]).trim();
+}
+
+export function buildSnapshot(files, stat) {
+  const snapshot = {};
+  for (const file of files) {
+    const info = stat(file);
+    snapshot[file] = info ? `${info.mtimeMs}:${info.size}` : "missing";
+  }
+  return snapshot;
+}
+
+export function diffSnapshots(before, after) {
+  const paths = new Set([...Object.keys(before), ...Object.keys(after)]);
+  return [...paths].filter((file) => before[file] !== after[file]).sort();
 }

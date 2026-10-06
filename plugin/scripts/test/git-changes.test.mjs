@@ -9,7 +9,9 @@ import {
   listChangedFiles,
   compareChangedFiles,
   buildCommitMessage,
-  commitFiles
+  commitFiles,
+  buildSnapshot,
+  diffSnapshots
 } from "../lib/git-changes.mjs";
 
 test("수정 파일과 새 파일을 읽는다", () => {
@@ -82,4 +84,22 @@ test("삭제된 파일도 커밋한다", (t) => {
   assert.deepEqual(listChangedFiles(dir), ["old.txt"]);
   commitFiles(dir, ["old.txt"], buildCommitMessage("chore: 삭제", "gpt-test"));
   assert.deepEqual(listChangedFiles(dir), []);
+});
+
+test("파일 목록으로 스냅샷을 만든다", () => {
+  const stats = { "a.txt": { mtimeMs: 10, size: 3 } };
+  assert.deepEqual(buildSnapshot(["a.txt", "gone.txt"], (file) => stats[file] ?? null), { "a.txt": "10:3", "gone.txt": "missing" });
+  assert.deepEqual(buildSnapshot([], () => null), {});
+});
+
+test("스냅샷 차이는 새 경로, 사라진 경로, 바뀐 값을 정렬해서 돌려준다", () => {
+  const same = { "a.txt": "1:1" };
+  assert.deepEqual(diffSnapshots(same, { ...same }), []);
+  assert.deepEqual(diffSnapshots({}, { "new.txt": "1:1" }), ["new.txt"]);
+  assert.deepEqual(diffSnapshots({ "old.txt": "1:1" }, {}), ["old.txt"]);
+  assert.deepEqual(diffSnapshots({ "a.txt": "1:1" }, { "a.txt": "2:1" }), ["a.txt"]);
+  assert.deepEqual(
+    diffSnapshots({ "z.txt": "1:1", "keep.txt": "1:1", "m.txt": "1:1" }, { "keep.txt": "1:1", "m.txt": "9:9", "b.txt": "1:1" }),
+    ["b.txt", "m.txt", "z.txt"]
+  );
 });

@@ -40,6 +40,8 @@ function setup({ replies = [DONE()], changed = [[], ["greet.py", "tests/test_gre
       calls.interrupt.push(request);
     },
     readTurnSummary: async () => SUMMARY,
+    snapshotRepo: () => ({}),
+    sleep: async () => {},
     commitFiles: (cwd, files, message) => {
       calls.commit.push({ files, message });
       return "abc1234";
@@ -116,7 +118,24 @@ test("DONE이고 보고가 실제 변경과 같으면 보고된 파일만 커밋
   assert.equal(calls.lines[0].value.weeklyStart, 12);
   assert.equal(calls.lines[0].value.weeklyEnd, 13);
   assert.equal(calls.json[0].file, "/repo/.superpowers/sdd/p/codex-results/r.json");
-  assert.match(summaryLine, /exit=0 status=DONE thread=thread-1 commit=abc1234 corrections=0 tokens=12 weekly=12%->13%/);
+  assert.match(summaryLine, /exit=0 status=DONE thread=thread-1 commit=abc1234 corrections=0 warnings=0 tokens=12 weekly=12%->13%/);
+});
+
+test("네트워크 명령은 막지 않고 경고로 남긴다", async () => {
+  const { run, calls } = setup({
+    deps: {
+      readTurnSummary: async () => ({ ...SUMMARY, commands: ["const r = await tools.exec_command({cmd: \"pip install requests\"})"] })
+    }
+  });
+  const { exitCode, result, summaryLine } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(calls.commit.length, 1);
+  assert.equal(result.networkCommands.length, 1);
+  assert.equal(result.networkCommands[0].turnId, "turn-1");
+  assert.match(result.warnings[0], /네트워크 명령 감지/);
+  assert.equal(calls.lines[0].value.networkCommands, 1);
+  assert.equal(calls.lines[0].value.lateChanges, null);
+  assert.match(summaryLine, /warnings=1/);
 });
 
 test("STATUS 줄이 없으면 같은 대화에 한 번 정정을 요청한다", async () => {
@@ -244,6 +263,28 @@ test("제한 시간을 넘기면 Codex 실행을 중단시키고 3", async () =>
   assert.match(result.reason, /중단 성공/);
   assert.equal(result.interrupt.interrupted, true);
   assert.deepEqual(calls.interrupt[0], { cwd: "/repo", threadId: "thread-1", turnId: "turn-9" });
+});
+
+test("시간 초과 뒤 2분 동안 바뀐 파일을 기록한다", async () => {
+  const snapshots = [{}, { "late.txt": "1:1" }];
+  const sleeps = [];
+  const { run } = setup({
+    options: { timeoutMin: 0.001 },
+    replies: [hangAfterStart],
+    deps: {
+      interrupt: async () => ({ attempted: true, interrupted: true, detail: "ok" }),
+      snapshotRepo: () => snapshots.shift(),
+      sleep: async (ms) => {
+        sleeps.push(ms);
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.deepEqual(sleeps, [120000]);
+  assert.deepEqual(result.lateChanges, ["late.txt"]);
+  assert.match(result.reason, /바뀐 파일 1개/);
+  assert.ok(result.warnings.some((warning) => /late\.txt/.test(warning)));
 });
 
 test("중단 요청이 예외를 던져도 제한 시간 결과와 대화 ID를 남긴다", async () => {

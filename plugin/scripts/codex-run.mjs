@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { defaultPaths, EXIT } from "./lib/pins.mjs";
 import { parseCliArgs } from "./lib/cli-args.mjs";
 import { collectEnvironmentProblems } from "./lib/environment.mjs";
-import { listChangedFiles, commitFiles } from "./lib/git-changes.mjs";
+import { listChangedFiles, commitFiles, buildSnapshot } from "./lib/git-changes.mjs";
 import { findRolloutFile, summarizeTurn } from "./lib/rollout.mjs";
 import { runWrapper } from "./lib/run.mjs";
 
@@ -53,6 +53,16 @@ const deps = {
   },
   listChangedFiles,
   commitFiles,
+  snapshotRepo: (cwd) =>
+    buildSnapshot(listChangedFiles(cwd), (file) => {
+      try {
+        const stat = fs.statSync(path.join(cwd, file));
+        return { mtimeMs: stat.mtimeMs, size: stat.size };
+      } catch {
+        return null;
+      }
+    }),
+  sleep,
   runTurn: async ({ cwd, prompt, resumeThreadId, effort, model, onProgress }) => {
     const { runAppServerTurn } = await loadCodexLib();
     const result = await runAppServerTurn(cwd, {
