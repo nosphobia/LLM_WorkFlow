@@ -102,3 +102,41 @@ test("대화 ID로 세션 기록 파일을 찾는다", (t) => {
   assert.equal(findRolloutFile(dir, "thread-zzz"), null);
   assert.equal(findRolloutFile(path.join(dir, "없음"), "thread-abc"), null);
 });
+
+const COMMAND_ROLLOUT = [
+  line({ type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } }),
+  line({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: "pip install old" } }),
+  line({ type: "event_msg", payload: { type: "task_complete", turn_id: "turn-1" } }),
+  line({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: "밖의 명령" } }),
+  line({ type: "event_msg", payload: { type: "task_started", turn_id: "turn-2" } }),
+  line({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: "const r = await tools.exec_command({cmd: \"git status\"});" } }),
+  line({ type: "response_item", payload: { type: "function_call", name: "shell", arguments: "{\"command\":[\"ls\"]}" } }),
+  line({ type: "response_item", payload: { type: "local_shell_call", action: { type: "exec", command: ["curl", "x"] } } }),
+  line({ type: "response_item", payload: { type: "message", content: "명령이 아님" } }),
+  line({ type: "event_msg", payload: { type: "task_complete", turn_id: "turn-2" } })
+].join("\n");
+
+test("명령은 지정한 차례 안에서만 모은다", () => {
+  const second = summarizeTurn(COMMAND_ROLLOUT, "turn-2");
+  assert.deepEqual(second.commands, [
+    "const r = await tools.exec_command({cmd: \"git status\"});",
+    "{\"command\":[\"ls\"]}",
+    "{\"type\":\"exec\",\"command\":[\"curl\",\"x\"]}"
+  ]);
+  assert.deepEqual(summarizeTurn(COMMAND_ROLLOUT, "turn-1").commands, ["pip install old"]);
+  assert.deepEqual(summarizeTurn(COMMAND_ROLLOUT, "turn-9").commands, []);
+});
+
+test("turn_aborted는 차례를 끝내고 aborted로 표시한다", () => {
+  const text = [
+    line({ type: "event_msg", payload: { type: "task_started", turn_id: "turn-1" } }),
+    line({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: "sleep 90" } }),
+    line({ type: "event_msg", payload: { type: "turn_aborted", turn_id: "turn-1", reason: "interrupted" } }),
+    line({ type: "response_item", payload: { type: "custom_tool_call", name: "exec", input: "중단 뒤 명령" } })
+  ].join("\n");
+  const summary = summarizeTurn(text, "turn-1");
+  assert.equal(summary.completed, true);
+  assert.equal(summary.aborted, true);
+  assert.deepEqual(summary.commands, ["sleep 90"]);
+  assert.equal(summarizeTurn(ROLLOUT, "turn-2").aborted, false);
+});

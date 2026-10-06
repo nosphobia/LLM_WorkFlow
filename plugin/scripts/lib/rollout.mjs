@@ -9,17 +9,27 @@ export function findRolloutFile(sessionsDir, threadId) {
   return found ? path.join(sessionsDir, String(found)) : null;
 }
 
+const COMMAND_TYPES = new Set(["custom_tool_call", "function_call", "local_shell_call"]);
+
+function commandText(payload) {
+  if (payload.type === "custom_tool_call") return String(payload.input ?? "");
+  if (payload.type === "function_call") return String(payload.arguments ?? "");
+  return JSON.stringify(payload.action ?? payload);
+}
+
 export function summarizeTurn(text, turnId) {
   const summary = {
     found: false,
     completed: false,
+    aborted: false,
     model: null,
     effort: null,
     tokens: null,
     rateLimitsStart: null,
     rateLimitsEnd: null,
     limitReached: false,
-    error: null
+    error: null,
+    commands: []
   };
   let inTurn = false;
   for (const raw of text.split(/\r?\n/)) {
@@ -44,6 +54,12 @@ export function summarizeTurn(text, turnId) {
       summary.completed = true;
       inTurn = false;
       if (payload.error) summary.error = { message: String(payload.error.message ?? ""), info: payload.error.codex_error_info ?? null };
+    } else if (event.type === "event_msg" && payload.type === "turn_aborted" && payload.turn_id === turnId) {
+      summary.completed = true;
+      summary.aborted = true;
+      inTurn = false;
+    } else if (inTurn && COMMAND_TYPES.has(payload.type)) {
+      summary.commands.push(commandText(payload));
     } else if (inTurn && event.type === "event_msg" && payload.type === "token_count" && payload.rate_limits) {
       summary.rateLimitsStart ??= payload.rate_limits;
       summary.rateLimitsEnd = payload.rate_limits;
