@@ -19,7 +19,9 @@
       "Bash(pwsh.exe *)",
       "Bash(cmd *)",
       "Bash(cmd.exe *)",
-      "Bash(* --no-verify*)"
+      "Bash(* --no-verify*)",
+      "Bash(taskkill *)",
+      "Bash(taskkill.exe *)"
     ],
     "ask": [
       "Bash(git push *)",
