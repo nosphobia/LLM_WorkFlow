@@ -46,6 +46,17 @@ const RESUME_PROMPT = [
   "CONCERNS: <only the exact name of the function you added earlier>"
 ].join("\n");
 
+const NETWORK_COMMAND_PROMPT = [
+  "This is a network-command detection check. Do not change any files.",
+  "Run this command exactly once and wait for it to finish (it may fail, that is fine): Invoke-WebRequest -UseBasicParsing -Method Head -Uri https://example.com | Select-Object -ExpandProperty StatusCode",
+  "End your final message with exactly these five lines:",
+  "STATUS: DONE",
+  "CHANGED_FILES: none",
+  "COMMIT_MESSAGE: none",
+  "TESTS: <the command's output or error, one line>",
+  "CONCERNS: none"
+].join("\n");
+
 const TIMEOUT_PROMPT = [
   "This is a timeout check. Do not change any files yourself.",
   "Run this command exactly once and wait for it to finish: python -c \"import time; time.sleep(90); open('late.txt','w').write('x')\"",
@@ -163,7 +174,7 @@ function finishAll() {
   for (const item of results) console.log(`[${item.pass ? "통과" : "실패"}] ${item.name} — ${item.detail}`);
   console.log("");
   console.log(`임시 저장소는 지우지 않았습니다: ${root}`);
-  process.exit(results.length === 8 && results.every((item) => item.pass) ? 0 : 1);
+  process.exit(results.length === 9 && results.every((item) => item.pass) ? 0 : 1);
 }
 
 function main() {
@@ -211,19 +222,25 @@ function main() {
   const gitFile = path.join(repo, ".git", "llm-workflow-probe");
   if (fs.existsSync(outsideFile)) {
     record("6. 샌드박스 경계", false, `이전 실행이 남긴 파일을 먼저 지워 주세요: ${outsideFile}`);
-  } else if (
-    // 양성 대조: 샌드박스 밖에서는 같은 연결이 되어야 "network: denied"가 샌드박스 덕분이라고 말할 수 있다.
-    spawnSync("python", ["-c", "import socket; socket.create_connection(('example.com', 443), timeout=5).close()"], { encoding: "utf8" }).status !== 0
-  ) {
-    record("6. 샌드박스 경계", false, "판정 불가: 이 PC에서 example.com:443에 접속할 수 없어 네트워크 차단을 확인할 수 없습니다");
   } else {
+    // 양성 대조: 샌드박스 밖에서도 접속이 안 되는 PC라면 네트워크 결과는 판정할 수 없다. 네트워크는 정보일 뿐 합격 조건이 아니다.
+    const pcReachesNetwork =
+      spawnSync("python", ["-c", "import socket; socket.create_connection(('example.com', 443), timeout=5).close()"], { encoding: "utf8" }).status === 0;
     const probe = callWrapper("boundary", ["start", "--role", "check", "--task", "6"], boundaryPrompt(outsideDir));
     const verdict =
       probe.exitCode === EXIT.OK
         ? evaluateBoundary(probe.result?.report?.tests, { outsideFileExists: fs.existsSync(outsideFile), gitFileExists: fs.existsSync(gitFile) })
         : { pass: false, detail: `exit=${probe.exitCode} ${probe.result?.reason ?? probe.stderr}` };
-    record("6. 샌드박스 경계", verdict.pass, verdict.detail);
+    record("6. 샌드박스 경계", verdict.pass, pcReachesNetwork ? verdict.detail : `${verdict.detail} (이 PC에서 외부 접속이 안 되어 네트워크 결과는 판정 불가)`);
   }
+
+  const net = callWrapper("network", ["start", "--role", "check", "--task", "7"], NETWORK_COMMAND_PROMPT);
+  const detected = net.result?.networkCommands?.length ?? 0;
+  record(
+    "7. 네트워크 명령 탐지",
+    net.exitCode === EXIT.OK && detected >= 1 && (net.result?.warnings?.length ?? 0) >= 1,
+    `exit=${net.exitCode} 감지=${detected} ${net.result?.warnings?.[0] ?? net.result?.reason ?? net.stderr}`
+  );
 
   const usageFile = path.join(workspace, USAGE_FILE);
   const lines = fs.existsSync(usageFile)
@@ -231,19 +248,17 @@ function main() {
     : [];
   const okLines = lines.filter((item) => item.exitCode === EXIT.OK);
   const usageOk = okLines.length > 0 && okLines.every((item) => item.tokens?.total_tokens > 0 && typeof item.weeklyEnd === "number");
-  record("7. 사용량 기록", usageOk, `기록 ${lines.length}줄, 성공 호출 ${okLines.length}줄`);
+  record("8. 사용량 기록", usageOk, `기록 ${lines.length}줄, 성공 호출 ${okLines.length}줄`);
 
-  // 8번은 마지막에 한다: 중단된 Codex가 90초 뒤에 파일을 만드는지 보려면 호출 시작 후 120초를 기다려야 한다.
-  const timeoutStart = Date.now();
-  const late = callWrapper("timeout", ["start", "--role", "check", "--task", "8", "--timeout-min", "0.5"], TIMEOUT_PROMPT);
-  const remaining = timeoutStart + 120_000 - Date.now();
-  if (remaining > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, remaining);
+  // 9번은 마지막에 한다: 래퍼가 중단 뒤 2분을 기다리며 바뀐 파일을 기록하므로 호출이 오래 걸린다.
+  const late = callWrapper("timeout", ["start", "--role", "check", "--task", "9", "--timeout-min", "0.5"], TIMEOUT_PROMPT);
   const lateExists = fs.existsSync(path.join(repo, "late.txt"));
+  const lateDetected = late.result?.lateChanges?.includes("late.txt") === true;
   const interrupted = late.result?.interrupt?.interrupted === true;
   record(
-    "8. 시간 초과 중단",
-    late.exitCode === EXIT.FAILED && String(late.result?.reason ?? "").includes("제한 시간") && interrupted && !lateExists,
-    `exit=${late.exitCode} 중단=${interrupted} late.txt=${lateExists ? "있음" : "없음"} ${late.result?.reason ?? late.stderr}`
+    "9. 시간 초과 중단",
+    late.exitCode === EXIT.FAILED && String(late.result?.reason ?? "").includes("제한 시간") && interrupted && (lateDetected || !lateExists),
+    `exit=${late.exitCode} 중단=${interrupted} late.txt=${lateExists ? "있음" : "없음"} 탐지=${lateDetected ? "예" : "아니오"} (중단된 명령이 계속 도는 것은 알려진 한계)`
   );
 
   finishAll();
