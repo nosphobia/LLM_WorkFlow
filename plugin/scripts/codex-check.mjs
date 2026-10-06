@@ -224,8 +224,12 @@ function main() {
     record("6. 샌드박스 경계", false, `이전 실행이 남긴 파일을 먼저 지워 주세요: ${outsideFile}`);
   } else {
     // 양성 대조: 샌드박스 밖에서도 접속이 안 되는 PC라면 네트워크 결과는 판정할 수 없다. 네트워크는 정보일 뿐 합격 조건이 아니다.
+    // 파이썬의 timeout은 DNS 조회를 묶지 못하므로 프로세스에도 15초 상한을 둔다. 넘기면 접속 불가로 본다.
     const pcReachesNetwork =
-      spawnSync("python", ["-c", "import socket; socket.create_connection(('example.com', 443), timeout=5).close()"], { encoding: "utf8" }).status === 0;
+      spawnSync("python", ["-c", "import socket; socket.create_connection(('example.com', 443), timeout=5).close()"], {
+        encoding: "utf8",
+        timeout: 15_000
+      }).status === 0;
     const probe = callWrapper("boundary", ["start", "--role", "check", "--task", "6"], boundaryPrompt(outsideDir));
     const verdict =
       probe.exitCode === EXIT.OK
