@@ -48,6 +48,15 @@ function setup({ replies = [DONE()], changed = [[], ["greet.py", "tests/test_gre
     },
     appendLine: (file, value) => calls.lines.push({ file, value }),
     writeJson: (file, value) => calls.json.push({ file, value }),
+    settings: { protectedPaths: [".claude/", ".githooks/", "CLAUDE.md", ".codex/"] },
+    prepareProjectConfig: async () => ({ hash: "h1", warnings: [], problems: [] }),
+    projectConfigHash: () => "h1",
+    checkAppsTools: async () => ({ problems: [], toolCount: 0 }),
+    checkLimits: async () => ({ status: "ok", reason: "한도 충분" }),
+    listRootDirs: () => [],
+    isIgnored: () => false,
+    cleanupCodexTmp: () => ({ removed: [], failed: [] }),
+    readSubagents: () => [],
     ...deps
   };
   const opts = {
@@ -379,4 +388,128 @@ test("결과 파일을 쓰지 못해도 요약 줄을 돌려준다", async () =>
   const { exitCode, summaryLine } = await run();
   assert.equal(exitCode, EXIT.OK);
   assert.match(summaryLine, /결과 기록 실패: disk full/);
+});
+test("첫 지시문 앞에만 공통 규칙을 붙인다", async () => {
+  const { run, calls } = setup({ replies: ["형식이 없는 답", DONE()] });
+  await run();
+  assert.match(calls.runTurn[0].prompt, /^## Workflow rules \(always apply\)/);
+  assert.match(calls.runTurn[0].prompt, /\.claude\/, \.githooks\/, CLAUDE\.md, \.codex\//);
+  assert.ok(calls.runTurn[0].prompt.endsWith("\n\n지시문"));
+  assert.doesNotMatch(calls.runTurn[1].prompt, /Workflow rules/);
+});
+
+test("호출 전 한도가 부족하면 Codex를 부르지 않고 4", async () => {
+  const { run, calls } = setup({ deps: { checkLimits: async () => ({ status: "short", reason: "10080분 창 남은 3% < 기준 5% (풀리는 시각 2026-10-17 14:08:50)" }) } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.LIMIT);
+  assert.match(result.reason, /^한도 부족\(호출 전 확인\): 10080분 창 남은 3%/);
+  assert.equal(calls.runTurn.length, 0);
+});
+
+test("한도를 확인하지 못하면 Codex를 부르지 않고 5", async () => {
+  const { run, calls } = setup({ deps: { checkLimits: async () => ({ status: "error", reason: "설정 파일에 요금제 team의 기준값이 없습니다" }) } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.ENVIRONMENT);
+  assert.match(result.reason, /^한도 확인 실패: 설정 파일에 요금제 team/);
+  assert.equal(calls.runTurn.length, 0);
+});
+
+test("프로젝트 Codex 설정에 문제가 있으면 5, 준비 중 경고는 결과에 남긴다", async () => {
+  const bad = setup({ deps: { prepareProjectConfig: async () => ({ hash: "h1", warnings: [], problems: ["외부 연결 도구(features.apps)가 꺼져 있지 않습니다"] }) } });
+  const failed = await bad.run();
+  assert.equal(failed.exitCode, EXIT.ENVIRONMENT);
+  assert.equal(bad.calls.runTurn.length, 0);
+  const warned = setup({ deps: { prepareProjectConfig: async () => ({ hash: "h1", warnings: ["프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)"], problems: [] }) } });
+  const ok = await warned.run();
+  assert.equal(ok.exitCode, EXIT.OK);
+  assert.ok(ok.result.warnings.includes("프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)"));
+});
+
+test("호출 뒤 프로젝트 Codex 설정이 바뀌었으면 커밋하지 않고 3", async () => {
+  const { run, calls } = setup({ deps: { projectConfigHash: () => "changed" } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.equal(result.reason, "보호 파일 변경: .codex/config.toml");
+  assert.equal(calls.commit.length, 0);
+});
+
+test("보호 경로를 바꿨으면 보고했든 안 했든 커밋하지 않고 3", async () => {
+  const reported = setup({ replies: [DONE("greet.py, CLAUDE.md")], changed: [[], ["CLAUDE.md", "greet.py"]] });
+  const first = await reported.run();
+  assert.equal(first.exitCode, EXIT.FAILED);
+  assert.equal(first.result.reason, "보호 경로 변경: CLAUDE.md");
+  assert.deepEqual(first.result.protectedChanges, ["CLAUDE.md"]);
+  assert.equal(reported.calls.commit.length, 0);
+
+  const unreported = setup({ replies: [DONE("greet.py"), DONE("greet.py, .claude/settings.json")], changed: [[], [".claude/settings.json", "greet.py"]] });
+  const second = await unreported.run();
+  assert.equal(second.exitCode, EXIT.FAILED);
+  assert.equal(second.result.mismatchCorrections, 1);
+  assert.match(second.result.reason, /^보호 경로 변경: \.claude\/settings\.json$/);
+  assert.equal(unreported.calls.commit.length, 0);
+});
+
+test("이번 호출의 하위 에이전트 토큰과 명령을 합치고 경고를 남긴다", async () => {
+  const seen = [];
+  const child = { threadId: "child-1", tokens: { total_tokens: 30 }, commands: ["taskkill /PID 99 /F", "curl https://example.com"] };
+  const { run, calls } = setup({
+    deps: {
+      readSubagents: (threadId, sinceMs) => {
+        seen.push({ threadId, sinceMs });
+        return [child];
+      }
+    }
+  });
+  const { exitCode, result, summaryLine } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.deepEqual(seen, [{ threadId: "thread-1", sinceMs: 1_000_000 }]);
+  assert.equal(result.usage.subagentCount, 1);
+  assert.equal(result.usage.subagentTokens.total_tokens, 30);
+  assert.equal(result.usage.totalTokens.total_tokens, 42);
+  assert.deepEqual(result.subagents, [{ threadId: "child-1", tokens: { total_tokens: 30 } }]);
+  assert.ok(result.warnings.includes("하위 에이전트 1개: child-1"));
+  assert.ok(result.warnings.some((warning) => /^위험 명령 감지 \(프로세스 종료\): taskkill/.test(warning)));
+  assert.ok(result.warnings.some((warning) => /^네트워크 명령 감지/.test(warning)));
+  assert.equal(calls.lines[0].value.subagentCount, 1);
+  assert.equal(calls.lines[0].value.subagentTokens.total_tokens, 30);
+  assert.equal(calls.lines[0].value.totalTokens.total_tokens, 42);
+  assert.equal(calls.lines[0].value.riskyCommands, 1);
+  assert.match(summaryLine, /tokens=42 weekly=12%->13% subagents=1 /);
+});
+
+test("호출 뒤 임시 폴더를 정리하고, Codex 호출이 실패해도 정리한다", async () => {
+  const cleaned = [];
+  const cleanup = () => {
+    cleaned.push(true);
+    return { removed: ["tmpabc"], failed: ["tmplocked: EPERM"] };
+  };
+  const ok = setup({ deps: { cleanupCodexTmp: cleanup } });
+  const first = await ok.run();
+  assert.deepEqual(first.result.tempCleanup, { removed: ["tmpabc"], failed: ["tmplocked: EPERM"] });
+  assert.ok(first.result.warnings.includes("남은 임시 항목 1개 정리: tmpabc"));
+  assert.ok(first.result.warnings.includes("임시 항목 정리 실패: tmplocked: EPERM"));
+  const failing = setup({ replies: [new Error("network down")], deps: { cleanupCodexTmp: cleanup } });
+  const second = await failing.run();
+  assert.equal(second.exitCode, EXIT.FAILED);
+  assert.equal(cleaned.length, 2);
+});
+
+test("저장소 최상위에 git에 보이지 않는 새 폴더가 생기면 경고한다", async () => {
+  const roots = [["src"], ["src", "tmpxyz", "pkg"]];
+  const { run } = setup({ replies: [DONE("pkg/a.py")], changed: [[], ["pkg/a.py"]], deps: { listRootDirs: () => roots.shift() } });
+  const { result } = await run();
+  assert.deepEqual(result.newRootDirs, ["tmpxyz"]);
+  assert.ok(result.warnings.includes("저장소 최상위에 git에 보이지 않는 새 폴더: tmpxyz"));
+});
+
+test("check는 외부 연결 도구가 켜져 있으면 5, 꺼져 있으면 개수를 알린다", async () => {
+  const on = setup({ options: { action: "check" }, deps: { checkAppsTools: async () => ({ problems: ["외부 연결 도구가 켜져 있습니다: codex_apps 도구 190개"], toolCount: 190 }) } });
+  const failed = await on.run();
+  assert.equal(failed.exitCode, EXIT.ENVIRONMENT);
+  assert.match(failed.result.reason, /codex_apps 도구 190개/);
+  const off = setup({ options: { action: "check" } });
+  const passed = await off.run();
+  assert.equal(passed.exitCode, EXIT.OK);
+  assert.equal(passed.result.reason, "환경 점검 통과 (외부 연결 도구 0개)");
+  assert.equal(off.calls.runTurn.length, 0);
 });
