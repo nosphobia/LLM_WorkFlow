@@ -9,9 +9,9 @@ export function findRolloutFile(sessionsDir, threadId) {
   return found ? path.join(sessionsDir, String(found)) : null;
 }
 
-const COMMAND_TYPES = new Set(["custom_tool_call", "function_call", "local_shell_call"]);
+export const COMMAND_TYPES = new Set(["custom_tool_call", "function_call", "local_shell_call"]);
 
-function commandText(payload) {
+export function commandText(payload) {
   if (payload.type === "custom_tool_call") return String(payload.input ?? "");
   if (payload.type === "function_call") return String(payload.arguments ?? "");
   return JSON.stringify(payload.action ?? payload);
