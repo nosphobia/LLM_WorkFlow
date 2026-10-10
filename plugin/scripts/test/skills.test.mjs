@@ -74,3 +74,23 @@ test("고정된 Superpowers 6.4.1에 스킬이 참조하는 파일이 모두 있
   const root = defaultPaths().superpowersRoot;
   for (const file of SUPERPOWERS_FILES) assert.ok(fs.existsSync(path.join(root, file)), `${file}가 없음`);
 });
+
+test("실행 스킬은 작업 스크립트, 한도 확인, 멈춤과 재개, 사람 확인 규칙을 담는다", () => {
+  const skill = read("codex-execution", "SKILL.md");
+  for (const phrase of ["codex-task.mjs", "limits --cwd <저장소> --phase execute", "멈춤:", "이어서 진행", "사람 확인", "Final review:", "Final re-review:", "Usage log:", "Broker: closed", "[개발 중 · 큰 문제]"]) {
+    assert.ok(skill.includes(phrase), phrase);
+  }
+});
+
+test("계획 스킬은 한도 확인, 계획 검토 요청 줄, 멈춤과 재개 규칙을 담는다", () => {
+  const skill = read("codex-planning", "SKILL.md");
+  for (const phrase of ["limits --cwd <저장소> --phase plan", "계획 검토: 요청", "멈춤:", "이어서 진행", "Plan: committed", "Plan review:", "[기획 · 큰 문제]"]) {
+    assert.ok(skill.includes(phrase), phrase);
+  }
+});
+
+test("지시문 틀에는 래퍼가 붙이는 공통 규칙을 넣지 않는다", () => {
+  for (const [name, files] of Object.entries(CODEX_PROMPTS)) {
+    for (const file of files) assert.doesNotMatch(read(name, file), /Workflow rules \(always apply\)/, `${name}/${file}`);
+  }
+});
