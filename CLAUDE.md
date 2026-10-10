@@ -42,6 +42,7 @@
 - 개발은 별도 worktree(`D:\Work\LLM_Project\LLM_WorkFlow-dev`)의 작업 브랜치에서 한다. main에 병합하는 것이 배포다.
 - 배포 전 시험: 개발 worktree에서 단위 테스트(`node --test "plugin/scripts/test/*.test.mjs"`)와 연결부 점검(`node plugin/scripts/codex-check.mjs`)을 돌린다. 스킬 동작은 시험용 프로젝트에서 `claude --plugin-dir D:\Work\LLM_Project\LLM_WorkFlow-dev\plugin`으로 세션을 띄워 확인한다. 그 세션에서는 개발 사본이 설치된 플러그인을 대신하고, 다른 세션은 운영 버전을 그대로 쓴다.
 - 배포 후: 운영 폴더에서 연결부 점검을 다시 돌린다. `plugin/` 아래 파일이 바뀌지 않은 배포는 연결부 점검을 생략한다.
+- Codex 요금제를 바꾸면 기준값 설정 파일(`plugin/settings/workflow-settings.json`)에 그 요금제의 한도 기준값을 먼저 추가한다. 값이 없으면 래퍼가 종료 코드 5로 멈춘다(의도된 동작).
 - 예외: 3단계 병합 전까지는 운영 폴더의 `stage3-design` 브랜치에서 3단계를 마무리한다.
 
 ## 소통
