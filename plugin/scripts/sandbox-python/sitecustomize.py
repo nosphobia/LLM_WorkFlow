@@ -4,10 +4,10 @@
 # 그래서 mkdtemp의 권한 처리만 바꿔 상위 폴더의 권한을 그대로 물려받게 한다. 이름 짓기, 재시도, 감사 이벤트는 원본과 같다.
 # 필요한 내부 함수가 없는 Python이면 보정하지 않는다.
 import os as _os
+import sys as _sys
 
-if _os.name == "nt":
+if _os.name == "nt" and _sys.version_info >= (3, 13):
     import errno as _errno
-    import sys as _sys
     import tempfile as _tempfile
 
     if hasattr(_tempfile, "_sanitize_params") and hasattr(_tempfile, "_get_candidate_names"):

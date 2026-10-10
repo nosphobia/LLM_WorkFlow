@@ -19,7 +19,7 @@ const SCRIPT = [
 ].join("\n");
 
 function runPython(env) {
-  return spawnSync("python", ["-c", SCRIPT], { encoding: "utf8", timeout: 60_000, env });
+  return spawnSync("python", ["-c", SCRIPT], { encoding: "utf8", timeout: 60_000, env: { ...env, PYTHONDONTWRITEBYTECODE: "1" } });
 }
 
 test("보정 모듈이 있으면 mkdtemp 폴더가 상위 폴더 권한을 물려받는다", { skip }, () => {
