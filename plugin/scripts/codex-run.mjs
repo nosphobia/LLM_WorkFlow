@@ -1,16 +1,23 @@
 #!/usr/bin/env node
 // Codex 플러그인을 부르는 유일한 진입점. 쓰는 법은 plugin/skills/codex-planning/SKILL.md에 있다.
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
-import { defaultPaths, EXIT } from "./lib/pins.mjs";
+import { defaultPaths, pluginPaths, EXIT } from "./lib/pins.mjs";
 import { parseCliArgs } from "./lib/cli-args.mjs";
 import { collectEnvironmentProblems } from "./lib/environment.mjs";
 import { listChangedFiles, commitFiles, buildSnapshot } from "./lib/git-changes.mjs";
 import { findRolloutFile, summarizeTurn } from "./lib/rollout.mjs";
 import { runWrapper } from "./lib/run.mjs";
 import { shutdownBroker, isProcessAlive } from "./lib/broker.mjs";
+import { parseSettings } from "./lib/settings.mjs";
+import { evaluateLimits, formatLimitLines } from "./lib/limits.mjs";
+import { PROJECT_CONFIG_REL, buildProjectConfig, checkEffectiveConfig, codexTmpDir, findAppsTools, hashText } from "./lib/project-config.mjs";
+import { emptyDir, listRootDirs } from "./lib/temp-cleanup.mjs";
+import { findSubagents } from "./lib/subagents.mjs";
+import { findWorkflowTrustEntries, formatTrustReport } from "./lib/trust.mjs";
 
 const parsed = parseCliArgs(process.argv.slice(2));
 if (!parsed.ok) {
@@ -19,6 +26,7 @@ if (!parsed.ok) {
 }
 const { options } = parsed;
 const paths = defaultPaths();
+const plugin = pluginPaths();
 
 let codexLib = null;
 async function loadCodexLib() {
@@ -35,6 +43,30 @@ function readText(file) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 공식 플러그인의 클라이언트로 브로커 없이 Codex 앱 서버를 잠깐 띄워 요청한다. 토큰을 쓰지 않는 요청만 한다.
+async function withDirectClient(cwd, fn) {
+  const { CodexAppServerClient } = await import(pathToFileURL(paths.codexAppServerLib).href);
+  const client = await CodexAppServerClient.connect(cwd, { disableBroker: true });
+  try {
+    return await fn(client);
+  } finally {
+    await client.close();
+  }
+}
+
+// 대화 기록을 남기지 않는 대화 시작(토큰 없음). Codex는 이때 그 폴더를 신뢰 목록에 등록한다.
+const startEphemeralThread = (client, cwd) =>
+  client.request("thread/start", { cwd, approvalPolicy: "never", sandbox: "workspace-write", ephemeral: true, serviceName: "llm-workflow" });
+
+const loadedSettings = parseSettings(readText(plugin.settingsFile) ?? "");
+function requireSettings(label) {
+  if (!loadedSettings.ok) {
+    console.error(`${label}: ${loadedSettings.error} (${plugin.settingsFile})`);
+    process.exit(EXIT.ENVIRONMENT);
+  }
+  return loadedSettings.settings;
+}
 
 if (options.action === "shutdown") {
   let broker;
@@ -59,9 +91,115 @@ if (options.action === "shutdown") {
   process.exit(noBroker || result.exited === true ? EXIT.OK : EXIT.FAILED);
 }
 
+if (options.action === "limits") {
+  const settings = requireSettings("codex-run limits");
+  let evaluation;
+  try {
+    const response = await withDirectClient(options.cwd, (client) => client.request("account/rateLimits/read", {}));
+    evaluation = evaluateLimits(response, settings, { phase: options.phase, tasks: options.tasks });
+  } catch (error) {
+    evaluation = { status: "error", planType: null, reason: `한도를 읽지 못했습니다: ${error.message}`, windows: [] };
+  }
+  for (const line of formatLimitLines(evaluation)) console.log(line);
+  process.exit(evaluation.status === "ok" ? EXIT.OK : evaluation.status === "short" ? EXIT.LIMIT : EXIT.ENVIRONMENT);
+}
+
+if (options.action === "trust-report") {
+  let lines;
+  try {
+    const read = await withDirectClient(options.cwd, (client) => client.request("config/read", { includeLayers: false, cwd: options.cwd }));
+    lines = formatTrustReport(findWorkflowTrustEntries(read?.config?.projects ?? {}, os.tmpdir(), (dir) => fs.existsSync(dir)));
+  } catch (error) {
+    console.error(`codex-run trust-report: 신뢰 목록을 읽지 못했습니다: ${error.message}`);
+    process.exit(EXIT.ENVIRONMENT);
+  }
+  for (const line of lines) console.log(line);
+  process.exit(EXIT.OK);
+}
+
+const settings = requireSettings("codex-run");
+const configFile = path.join(options.cwd, PROJECT_CONFIG_REL);
+const expectedConfig = { repoDir: options.cwd, shimDir: plugin.shimDir };
+
+function isIgnored(cwd, rel) {
+  try {
+    execFileSync("git", ["-C", cwd, "check-ignore", "-q", "--", rel], { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// .codex/가 git 무시 대상이 아니면 저장소별 무시 목록(.git/info/exclude)에 더한다. 추적 파일은 바꾸지 않는다.
+function ensureCodexIgnored() {
+  if (isIgnored(options.cwd, ".codex/config.toml")) return null;
+  const rel = execFileSync("git", ["-C", options.cwd, "rev-parse", "--git-path", "info/exclude"], { encoding: "utf8" }).trim();
+  const exclude = path.resolve(options.cwd, rel);
+  const current = readText(exclude) ?? "";
+  fs.mkdirSync(path.dirname(exclude), { recursive: true });
+  fs.writeFileSync(exclude, `${current}${current && !current.endsWith("\n") ? "\n" : ""}.codex/\n`);
+  return "`.codex/`가 git 무시 목록에 없어 .git/info/exclude에 더했습니다";
+}
+
+async function prepareProjectConfig() {
+  const warnings = [];
+  const problems = [];
+  const ignoreNote = ensureCodexIgnored();
+  if (ignoreNote) warnings.push(ignoreNote);
+  const sddIgnore = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
+  fs.mkdirSync(path.dirname(sddIgnore), { recursive: true });
+  if (!fs.existsSync(sddIgnore)) fs.writeFileSync(sddIgnore, "*\n");
+  fs.mkdirSync(codexTmpDir(options.cwd), { recursive: true });
+  const text = buildProjectConfig(expectedConfig);
+  const before = readText(configFile);
+  if (before !== null && before !== text) warnings.push("프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)");
+  fs.mkdirSync(path.dirname(configFile), { recursive: true });
+  fs.writeFileSync(configFile, text);
+  try {
+    const checked = await withDirectClient(options.cwd, async (client) => {
+      const read = async () => checkEffectiveConfig(await client.request("config/read", { includeLayers: true, cwd: options.cwd }), expectedConfig);
+      let result = await read();
+      if (result.projectDisabled) {
+        // 그 폴더에서 Codex를 처음 쓰면 신뢰 등록 전이라 프로젝트 설정이 꺼져 있다. 토큰을 쓰지 않는 대화 시작으로 등록한다.
+        await startEphemeralThread(client, options.cwd);
+        result = await read();
+      }
+      return result;
+    });
+    problems.push(...checked.problems);
+  } catch (error) {
+    problems.push(`프로젝트 Codex 설정을 확인하지 못했습니다: ${error.message}`);
+  }
+  return { hash: hashText(text), warnings, problems };
+}
+
+async function checkAppsTools() {
+  try {
+    const status = await withDirectClient(options.cwd, async (client) => {
+      const started = await startEphemeralThread(client, options.cwd);
+      return client.request("mcpServerStatus/list", { threadId: started.thread.id, detail: "toolsAndAuthOnly" });
+    });
+    const apps = findAppsTools(status);
+    if (apps.present) return { problems: [`외부 연결 도구가 켜져 있습니다: codex_apps 도구 ${apps.tools.length}개`], toolCount: apps.tools.length };
+    return { problems: [], toolCount: 0 };
+  } catch (error) {
+    return { problems: [`외부 연결 도구를 확인하지 못했습니다: ${error.message}`], toolCount: null };
+  }
+}
+
+async function checkLimits() {
+  try {
+    const response = await withDirectClient(options.cwd, (client) => client.request("account/rateLimits/read", {}));
+    return evaluateLimits(response, settings, { phase: "call" });
+  } catch (error) {
+    return { status: "error", reason: `한도를 읽지 못했습니다: ${error.message}` };
+  }
+}
+
 const deps = {
   now: () => Date.now(),
   readText,
+  settings,
   checkEnvironment: (repoDir) =>
     collectEnvironmentProblems({
       repoDir,
@@ -71,6 +209,10 @@ const deps = {
       // 원격 마켓플레이스 목록 때문에 출력이 1MiB를 넘을 수 있다(2026-10-10 약 1.06MB).
       codexPluginList: () => execSync("codex plugin list", { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 })
     }),
+  prepareProjectConfig,
+  projectConfigHash: () => hashText(readText(configFile) ?? ""),
+  checkAppsTools,
+  checkLimits,
   ensureWorkspace: (dir) => {
     fs.mkdirSync(dir, { recursive: true });
     const ignoreFile = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
@@ -78,6 +220,10 @@ const deps = {
   },
   listChangedFiles,
   commitFiles,
+  listRootDirs: (cwd) => listRootDirs(cwd),
+  isIgnored: (cwd, rel) => isIgnored(cwd, rel),
+  cleanupCodexTmp: () => emptyDir(codexTmpDir(options.cwd)),
+  readSubagents: (threadId, sinceMs) => findSubagents(paths.codexSessions, threadId, sinceMs),
   snapshotRepo: (cwd) =>
     buildSnapshot(listChangedFiles(cwd), (file) => {
       try {
