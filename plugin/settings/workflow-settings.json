@@ -1,0 +1,12 @@
+{
+  "protectedPaths": [".claude/", ".githooks/", "CLAUDE.md", ".codex/"],
+  "limits": {
+    "plus": {
+      "300": { "plan": 50, "executeBase": 0, "executePerTask": 18, "call": 30 },
+      "10080": { "plan": 10, "executeBase": 7, "executePerTask": 3, "call": 5 }
+    },
+    "prolite": {
+      "10080": { "plan": 5, "executeBase": 5, "executePerTask": 2, "call": 5 }
+    }
+  }
+}
