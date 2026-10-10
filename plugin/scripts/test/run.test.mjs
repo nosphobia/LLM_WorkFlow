@@ -389,6 +389,50 @@ test("결과 파일을 쓰지 못해도 요약 줄을 돌려준다", async () =>
   assert.equal(exitCode, EXIT.OK);
   assert.match(summaryLine, /결과 기록 실패: disk full/);
 });
+
+test("하위 에이전트 결과에 명령과 토큰이 없어도 결과와 사용량 기록을 남긴다", async () => {
+  const { run, calls } = setup({ deps: { readSubagents: () => [{ threadId: "x" }] } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(result.usage.subagentCount, 1);
+  assert.ok(result.warnings.includes("하위 에이전트 1개: x"));
+  assert.equal(calls.json.length, 1);
+  assert.equal(calls.lines.length, 1);
+});
+
+test("임시 폴더 정리 결과가 빈 객체여도 결과와 사용량 기록을 남긴다", async () => {
+  const { run, calls } = setup({ deps: { cleanupCodexTmp: () => ({}) } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(calls.json.length, 1);
+  assert.equal(calls.lines.length, 1);
+  assert.ok(!result.warnings.some((warning) => /임시 항목/.test(warning)));
+});
+
+test("하위 에이전트 결과가 배열이 아니어도 결과와 사용량 기록을 남긴다", async () => {
+  const { run, calls } = setup({ deps: { readSubagents: () => ({ threadId: "x" }) } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(result.usage.subagentCount, 0);
+  assert.equal(calls.json.length, 1);
+  assert.equal(calls.lines.length, 1);
+});
+
+test("하위 에이전트 확인이 예외를 던져도 결과를 남기고 경고한다", async () => {
+  const { run, calls } = setup({
+    deps: {
+      readSubagents: () => {
+        throw new Error("rollout unreadable");
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.ok(result.warnings.includes("하위 에이전트 확인 실패: rollout unreadable"));
+  assert.equal(calls.json.length, 1);
+  assert.equal(calls.lines.length, 1);
+});
+
 test("첫 지시문 앞에만 공통 규칙을 붙인다", async () => {
   const { run, calls } = setup({ replies: ["형식이 없는 답", DONE()] });
   await run();

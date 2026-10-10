@@ -223,14 +223,15 @@ async function requestInterrupt(deps, request) {
 // 확인이 실패해도 결과는 잃지 않고 경고로 남긴다.
 function inspectAfterCodex(options, deps, state, startedAt) {
   try {
-    state.subagents = state.threadId ? deps.readSubagents(state.threadId, startedAt) : [];
+    const found = state.threadId ? deps.readSubagents(state.threadId, startedAt) : [];
+    state.subagents = Array.isArray(found) ? found.filter(Boolean) : [];
   } catch (error) {
     state.warnings.push(`하위 에이전트 확인 실패: ${error?.message ?? error}`);
   }
   for (const child of state.subagents) {
-    for (const found of findNetworkCommands(child.commands)) state.networkCommands.push({ ...found, turnId: null, subagent: child.threadId });
+    for (const found of findNetworkCommands(child.commands ?? [])) state.networkCommands.push({ ...found, turnId: null, subagent: child.threadId });
   }
-  state.riskyCommands = findRiskyCommands([...state.turns.flatMap((turn) => turn.commands), ...state.subagents.flatMap((child) => child.commands)]);
+  state.riskyCommands = findRiskyCommands([...state.turns.flatMap((turn) => turn.commands), ...state.subagents.flatMap((child) => child.commands ?? [])]);
   try {
     state.tempCleanup = deps.cleanupCodexTmp();
   } catch (error) {
@@ -250,8 +251,8 @@ function buildWarnings(state) {
   for (const item of state.networkCommands) warnings.push(`네트워크 명령 감지 (${item.matches.join(", ")}): ${item.command}`);
   for (const item of state.riskyCommands) warnings.push(`위험 명령 감지 (${item.matches.join(", ")}): ${item.command}`);
   if (state.subagents.length > 0) warnings.push(`하위 에이전트 ${state.subagents.length}개: ${state.subagents.map((child) => child.threadId).join(", ")}`);
-  if (state.tempCleanup?.removed.length > 0) warnings.push(`남은 임시 항목 ${state.tempCleanup.removed.length}개 정리: ${state.tempCleanup.removed.join(", ")}`);
-  if (state.tempCleanup?.failed.length > 0) warnings.push(`임시 항목 정리 실패: ${state.tempCleanup.failed.join(", ")}`);
+  if (state.tempCleanup?.removed?.length > 0) warnings.push(`남은 임시 항목 ${state.tempCleanup.removed.length}개 정리: ${state.tempCleanup.removed.join(", ")}`);
+  if (state.tempCleanup?.failed?.length > 0) warnings.push(`임시 항목 정리 실패: ${state.tempCleanup.failed.join(", ")}`);
   if (state.newRootDirs.length > 0) warnings.push(`저장소 최상위에 git에 보이지 않는 새 폴더: ${state.newRootDirs.join(", ")}`);
   if (state.protectedChanges.length > 0) warnings.push(`보호 경로 변경(커밋 안 함): ${state.protectedChanges.join(", ")}`);
   if (state.lateChanges?.length > 0) warnings.push(`중단 뒤 바뀐 파일: ${state.lateChanges.join(", ")}`);
