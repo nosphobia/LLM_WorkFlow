@@ -135,6 +135,7 @@ Codex 작업은 한 번에 하나만 돌린다.
   - 추론이 부족하면 새 대화를 `--effort xhigh`로 시작한다. 단, Codex가 남긴 커밋되지 않은 변경이 있으면 새 대화 대신 같은 대화를 `--effort xhigh`로 이어간다.
   - 작업이 너무 크면 쪼갠 범위를 판정으로 기록하고 차례로 맡긴다.
   - 계획 결함이면 판정을 기록하고, 그 판정을 맥락에 담아 다시 맡긴다.
+- 수정·인계·최종 수정 호출에서 멈췄으면: 같은 역할과 같은 라운드로 같은 대화를 이어간다(`codex-task run --role <같은 역할> --task <N> --round <R> --thread <ID> --findings <파일>`). 필요한 맥락은 지적 파일에 덧붙인다(수정 틀에는 맥락 칸이 없다). 인계는 `--findings` 대신 `--diff <검수 자료>`를 쓴다. 최종 수정은 `--role final-fix --thread <ID> --findings <파일> --diff <파일>`로 이어간다(`--task`, `--round` 없음). BLOCKED이고 바꿀 것이 없으면 멈춘다.
 - 같은 방식으로 다시 시도하지 않는다. Claude가 대신 구현하지 않는다.
 
 ## 수정 루프 (작업당 최대 5라운드)
@@ -148,7 +149,7 @@ Codex 작업은 한 번에 하나만 돌린다.
      - `codex-task review --kind task --task <N> --base <base>`로 지금까지의 변경을 묶는다. 출력의 `package=` 파일이 검수 자료다.
      - `codex-task run --role handoff --task <N> --round 4 --diff <검수 자료> --effort xhigh`로 새 대화를 시작한다.
      - 5라운드는 그 새 대화를 `--role fix --round 5 --thread <새 ID> --effort xhigh`로 이어간다.
-  4. 재검수: `codex-task run`의 `next:`가 가리키는 `codex-task review --kind rereview --task <N> --base <수정 전 HEAD> --findings <지적 파일>`. 작은 수정은 `--model haiku`, 그 밖에는 `sonnet`이다.
+  4. 재검수: `codex-task run`의 `next:`가 가리키는 `codex-task review --kind rereview --task <N> --base <수정 전 HEAD> --findings <지적 파일>`. 작은 수정은 `--model haiku`, 그 밖에는 `sonnet`이다. 수정에서 커밋이 없으면(반박) 재검수 자료에 'No new commits'가 적힌다. 검수자는 보고서의 반박을 지적별로 판정한다. 멈추지 않는다.
   5. `codex-task ledger --text "Task <N>: fix round <R>/5 (<X> addressed, <Y> open — <지적 한 줄들>; commits <a7>..<b7>)"`.
 - 5라운드 뒤 남은 지적은 마스터가 판정한다.
   - 검수자가 틀렸거나 다툼이 있으면 `Task <N>: parked — <지적> — Ruling: <이유> — <틀렸을 때 비용>`으로 보류한다.
@@ -159,28 +160,29 @@ Codex 작업은 한 번에 하나만 돌린다.
 
 ## 마무리
 
-1. **최종 검수:** `codex-task review --kind final --base $(git merge-base main HEAD)`를 돌리고, 출력대로 `opus` 서브에이전트를 보낸다. 끝나면 `codex-task ledger --text "Final review: <결과> — findings <파일 또는 none>"`.
-2. **최종 수정 (지적이 있을 때, 한 번만):**
+1. **마스터의 테스트:** 마스터가 계획 Global Constraints의 전체 테스트 명령을 제한 시간을 두고 직접 돌린다(보정 모듈 없이, Codex 샌드박스 밖). 이 결과가 최종 판단 기준이다. 실패하면 최종 검수 지적에 넣고, 결과(명령, 통과/실패 수)를 최종 보고에 적는다.
+2. **최종 검수:** `codex-task review --kind final --base $(git merge-base main HEAD)`를 돌리고, 출력대로 `opus` 서브에이전트를 보낸다. 끝나면 `codex-task ledger --text "Final review: <결과> — findings <파일 또는 none>"`.
+3. **최종 수정 (지적이 있을 때, 한 번만):**
    - 지적을 `final-fix-findings.md`에 저장한다.
-   - `codex-task run --role final-fix --findings <final-fix-findings.md> --diff <1번 출력의 package= 파일>`을 돌린다.
+   - `codex-task run --role final-fix --findings <final-fix-findings.md> --diff <2번 출력의 package= 파일>`을 돌린다.
    - 재검수를 한 번만 한다: `codex-task review --kind rereview --task final --base <수정 전 HEAD> --findings <final-fix-findings.md>`, 모델은 `sonnet`.
    - 끝나면 `codex-task ledger --text "Final re-review: <결과>"`. 남은 지적은 판정해서 기록한다. 두 번째 수정은 없다.
-3. **최종 보고:** 첫 줄은 `[배포 · 확인 필요]`이고, 핵심 세 줄과 `docs/reports/` 아래 보고 파일 경로를 쓴다. 보고 파일에 넣을 것:
+4. **최종 보고:** 첫 줄은 `[배포 · 확인 필요]`이고, 핵심 세 줄과 `docs/reports/` 아래 보고 파일 경로를 쓴다. 보고 파일에 넣을 것:
    - "내가 내린 판정": `planning.md`와 `progress.md`의 `Ruling:` 줄 전부를 순서대로, 틀렸을 때 비용과 함께
-   - "사람 확인" 체크 목록: `사람 확인:` 줄과 경고 줄(`네트워크 경고:`, `위험 명령 경고:`, `하위 에이전트 경고:`, `래퍼 경고:`)
+   - "사람 확인" 체크 목록: `사람 확인:` 줄과 경고 줄(`progress.md`의 `네트워크 경고:`, `위험 명령 경고:`, `하위 에이전트 경고:`, `래퍼 경고:`, 그리고 `planning.md`의 `경고:` 줄)
    - Codex 사용량: `node <사용량 합계> <진행 기록 폴더>`의 호출 수, 실패 수, 정정 수, 토큰(메인, 하위 에이전트, 합계), 주간 한도 처음→끝
    - 사용자에게 Claude 주간 사용률을 받아 `usage-checkpoints.md`에 `측정점 3 (구현 직후)`로 적는다.
-4. **사용량 기록:** `workflow/usage-log.md`에 합계 한 줄을 쓰고 커밋한다. 커밋 뒤 `codex-task ledger --text "Usage log: commit <해시>"`.
+5. **사용량 기록:** `workflow/usage-log.md`에 합계 한 줄을 쓰고 커밋한다. 커밋 뒤 `codex-task ledger --text "Usage log: commit <해시>"`.
    - 날짜, 기능, 작업 규모
    - 수정 루프 횟수: 작업별 라운드 합. 최종 수정이 있었으면 1을 더한다.
    - Claude 사용량: 측정점 1 → 측정점 3
    - Codex 사용량: 합계의 주간 처음 → 끝
    - 메모: 측정점 2 값이 있으면 그 값, Codex 총 토큰
-5. 진행 기록 폴더는 지우지 않는다.
-6. **브로커 닫기:** Codex 작업이 모두 끝난 뒤 Codex 브로커를 닫는다: `node <래퍼> shutdown --cwd <저장소>`. 브로커는 저장소마다 하나씩 떠서 래퍼 호출이 재사용하고, 닫으면 그 저장소의 Codex 앱 서버도 함께 닫힌다.
+6. 진행 기록 폴더는 지우지 않는다.
+7. **브로커 닫기:** Codex 작업이 모두 끝난 뒤 Codex 브로커를 닫는다: `node <래퍼> shutdown --cwd <저장소>`. 브로커는 저장소마다 하나씩 떠서 래퍼 호출이 재사용하고, 닫으면 그 저장소의 Codex 앱 서버도 함께 닫힌다.
    - 종료 코드 0: 닫았거나 닫을 브로커가 없다. `codex-task ledger --text "Broker: closed"`.
    - 종료 코드 3: 브로커가 끝나지 않았거나 종료를 확인하지 못했다. 다시 시도하거나 프로세스를 끝내지 말고, 출력의 PID와 함께 사용자에게 보고한다.
-7. 이후 QA, 위키, 병합은 프로젝트 규칙을 따른다. 병합 방식 선택은 `superpowers:finishing-a-development-branch`를 쓴다.
+8. 이후 QA, 위키, 병합은 프로젝트 규칙을 따른다. 병합 방식 선택은 `superpowers:finishing-a-development-branch`를 쓴다.
 
 ## 하지 않는 것
 
