@@ -117,7 +117,7 @@ Superpowers 6.4.1 `subagent-driven-development`의 진행 기록, 작업 지시 
 2. `codex-task run --role implement --task <N> [--context <맥락 파일>]`을 백그라운드로 돌린다.
 3. 종료 코드가 0이면:
    - **우려가 있을 때:** `DONE_WITH_CONCERNS`면 우려를 먼저 읽는다.
-     - 정확성이나 범위에 관한 우려면, 우려를 지적으로 적은 파일로 같은 대화를 이어가 먼저 해결하게 한다: `codex-task run --role fix --task <N> --round 0 --thread <ID> --findings <파일>`. 이 처리는 수정 라운드에 세지 않는다.
+     - 정확성이나 범위에 관한 우려면, 우려를 지적으로 적은 파일로 같은 대화를 이어가 먼저 해결하게 한다: `codex-task run --role fix --task <N> --round 0 --thread <ID> --findings <파일>`. 이 처리는 수정 라운드에 세지 않는다. 끝나면 `next:`가 가리키는 작업 검수로 간다.
      - 관찰성 우려면 그대로 검수로 넘긴다.
    - **검수 지시 파일 만들기:** 출력의 `next:` 명령(`codex-task review --kind task --task <N> --base <base> --concerns "<우려 또는 none>"`)을 돌린다. 큰 변경이나 위험한 변경은 `--model opus`를 붙인다.
    - **검수자 보내기:** 출력의 모델로 검수 서브에이전트를 보낸다. 지시는 "Read <검수 지시 파일> and follow it exactly. You are read-only."이고, 서브에이전트를 보낼 때 모델을 반드시 적는다.

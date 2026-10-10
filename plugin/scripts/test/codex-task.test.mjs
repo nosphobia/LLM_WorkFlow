@@ -114,9 +114,9 @@ function makeFake(repo) {
   return fake;
 }
 
-function runFake(repo, mode, exit) {
+function runFake(repo, mode, exit, roleArgs = ["--role", "implement", "--task", "1"]) {
   const fake = makeFake(repo);
-  const proc = spawnSync(process.execPath, [script, "run", "--role", "implement", "--task", "1", "--cwd", repo, "--plan", "docs/plan.md"], {
+  const proc = spawnSync(process.execPath, [script, "run", ...roleArgs, "--cwd", repo, "--plan", "docs/plan.md"], {
     cwd: repo,
     encoding: "utf8",
     timeout: 120_000,
@@ -161,4 +161,25 @@ test("--round와 --task는 양의 정수여야 한다", { skip }, () => {
   assert.match(runTask(repo, ["run", "--role", "implement", "--task", "1x", "--dry-run"]).stderr, /--task/);
   assert.equal(runTask(repo, ["run", "--role", "implement", "--task", "1", "--round", "0", "--dry-run"]).status, 3);
   assert.equal(runTask(repo, ["review", "--kind", "task", "--task", "abc", "--base", "HEAD"]).status, 3);
+});
+
+test("--round 0은 fix(우려 처리)에서만 받는다", { skip }, () => {
+  const { repo } = makeRepo();
+  fs.writeFileSync(path.join(repo, "findings.md"), "- concern\n");
+  const fix = ["--role", "fix", "--task", "1", "--round", "0", "--thread", "T", "--findings", "findings.md"];
+  const ok = runTask(repo, ["run", ...fix, "--dry-run"]);
+  assert.equal(ok.status, 0, ok.stderr);
+  const handoff = runTask(repo, ["run", "--role", "handoff", "--task", "1", "--round", "0", "--diff", "findings.md", "--dry-run"]);
+  assert.equal(handoff.status, 3);
+  assert.match(handoff.stderr, /--round 0/);
+});
+
+test("run: 우려 처리(fix round 0)가 끝나면 첫 작업 검수로, round 1 이상이면 재검수로 안내한다", { skip }, () => {
+  for (const [round, expected] of [["0", /next: .*review --kind task --task 1/], ["1", /next: .*review --kind rereview --task 1/]]) {
+    const { repo } = makeRepo();
+    fs.writeFileSync(path.join(repo, "findings.md"), "- concern\n");
+    const { proc } = runFake(repo, "ok", 0, ["--role", "fix", "--task", "1", "--round", round, "--thread", "T", "--findings", "findings.md"]);
+    assert.equal(proc.status, 0, proc.stderr);
+    assert.match(proc.stdout, expected);
+  }
 });

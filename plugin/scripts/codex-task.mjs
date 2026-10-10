@@ -63,7 +63,8 @@ try {
 }
 if (!args.cwd || !args.plan) fail("--cwd와 --plan이 필요합니다");
 const positive = /^[1-9]\d*$/;
-if (args.round !== undefined && !positive.test(args.round)) fail("--round는 1 이상의 정수여야 합니다");
+if (args.round !== undefined && !/^\d+$/.test(args.round)) fail("--round는 0 이상의 정수여야 합니다");
+if (command === "run" && args.round === "0" && args.role !== "fix") fail("--round 0은 --role fix(우려 처리)에서만 쓴다");
 if (args.task !== undefined && !positive.test(args.task) && !(command === "review" && args.kind === "rereview" && args.task === "final")) fail("--task는 1 이상의 정수여야 합니다");
 
 const repo = path.resolve(args.cwd);
@@ -284,6 +285,8 @@ if (exitCode === EXIT.OK && role === "implement") {
     : `검수로: codex-task review --kind task --task ${task} --base ${head.slice(0, 7)}`;
 } else if (exitCode === EXIT.OK && role === "final-fix") {
   next = `재검수로: codex-task review --kind rereview --task final --base ${head.slice(0, 7)} --findings <final-fix-findings.md>`;
+} else if (exitCode === EXIT.OK && role === "fix" && round === 0) {
+  next = `검수로: codex-task review --kind task --task ${task} --base <진행 기록의 "Task ${task}: base" 값>`;
 } else if (exitCode === EXIT.OK) {
   next = `재검수로: codex-task review --kind rereview --task ${task} --base ${head.slice(0, 7)} --findings ${args.findings ?? "<지적 파일>"}`;
 } else if (exitCode === EXIT.STOPPED) {
