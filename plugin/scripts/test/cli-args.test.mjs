@@ -75,3 +75,20 @@ test("결과 파일 기본 경로는 진행 기록 폴더의 codex-results 아�
   const explicit = parseCliArgs([...startArgs, "--out", path.join(ws, "r.json")]);
   assert.equal(explicit.options.out, path.join(ws, "r.json"));
 });
+
+test("limits에는 --phase가 필요하고 --tasks는 0 이상의 정수다", () => {
+  assert.match(parseCliArgs(["limits", "--cwd", repo]).error, /--phase/);
+  assert.match(parseCliArgs(["limits", "--cwd", repo, "--phase", "soon"]).error, /--phase/);
+  assert.match(parseCliArgs(["limits", "--cwd", repo, "--phase", "execute", "--tasks", "-1"]).error, /--tasks/);
+  const parsed = parseCliArgs(["limits", "--cwd", repo, "--phase", "execute", "--tasks", "5"]);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.options.phase, "execute");
+  assert.equal(parsed.options.tasks, 5);
+  assert.equal(parseCliArgs(["limits", "--cwd", repo, "--phase", "call"]).options.tasks, 0);
+});
+
+test("trust-report는 --cwd만 있으면 된다", () => {
+  const parsed = parseCliArgs(["trust-report", "--cwd", repo]);
+  assert.equal(parsed.ok, true);
+  assert.equal(parsed.options.action, "trust-report");
+});
