@@ -45,12 +45,18 @@ function readText(file) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // 공식 플러그인의 클라이언트로 브로커 없이 Codex 앱 서버를 잠깐 띄워 요청한다. 토큰을 쓰지 않는 요청만 한다.
+const DIRECT_REQUEST_TIMEOUT_MS = 60_000;
 async function withDirectClient(cwd, fn) {
   const { CodexAppServerClient } = await import(pathToFileURL(paths.codexAppServerLib).href);
   const client = await CodexAppServerClient.connect(cwd, { disableBroker: true });
+  let timer;
   try {
-    return await fn(client);
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error("Codex 앱 서버 응답 시간 초과 (60초)")), DIRECT_REQUEST_TIMEOUT_MS);
+    });
+    return await Promise.race([fn(client), timeout]);
   } finally {
+    clearTimeout(timer);
     await client.close();
   }
 }
@@ -136,6 +142,7 @@ function ensureCodexIgnored() {
   const rel = execFileSync("git", ["-C", options.cwd, "rev-parse", "--git-path", "info/exclude"], { encoding: "utf8" }).trim();
   const exclude = path.resolve(options.cwd, rel);
   const current = readText(exclude) ?? "";
+  if (current.split(/\r?\n/).some((line) => line.trim() === ".codex/")) return null;
   fs.mkdirSync(path.dirname(exclude), { recursive: true });
   fs.writeFileSync(exclude, `${current}${current && !current.endsWith("\n") ? "\n" : ""}.codex/\n`);
   return "`.codex/`가 git 무시 목록에 없어 .git/info/exclude에 더했습니다";
@@ -144,17 +151,22 @@ function ensureCodexIgnored() {
 async function prepareProjectConfig() {
   const warnings = [];
   const problems = [];
-  const ignoreNote = ensureCodexIgnored();
-  if (ignoreNote) warnings.push(ignoreNote);
-  const sddIgnore = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
-  fs.mkdirSync(path.dirname(sddIgnore), { recursive: true });
-  if (!fs.existsSync(sddIgnore)) fs.writeFileSync(sddIgnore, "*\n");
-  fs.mkdirSync(codexTmpDir(options.cwd), { recursive: true });
   const text = buildProjectConfig(expectedConfig);
-  const before = readText(configFile);
-  if (before !== null && before !== text) warnings.push("프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)");
-  fs.mkdirSync(path.dirname(configFile), { recursive: true });
-  fs.writeFileSync(configFile, text);
+  try {
+    const ignoreNote = ensureCodexIgnored();
+    if (ignoreNote) warnings.push(ignoreNote);
+    const sddIgnore = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
+    fs.mkdirSync(path.dirname(sddIgnore), { recursive: true });
+    if (!fs.existsSync(sddIgnore)) fs.writeFileSync(sddIgnore, "*\n");
+    fs.mkdirSync(codexTmpDir(options.cwd), { recursive: true });
+    const before = readText(configFile);
+    if (before !== null && before !== text) warnings.push("프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)");
+    fs.mkdirSync(path.dirname(configFile), { recursive: true });
+    fs.writeFileSync(configFile, text);
+  } catch (error) {
+    problems.push(`프로젝트 Codex 설정을 준비하지 못했습니다: ${error.message}`);
+    return { hash: hashText(text), warnings, problems };
+  }
   try {
     const checked = await withDirectClient(options.cwd, async (client) => {
       const read = async () => checkEffectiveConfig(await client.request("config/read", { includeLayers: true, cwd: options.cwd }), expectedConfig);
