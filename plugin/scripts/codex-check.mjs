@@ -338,8 +338,9 @@ function runCodexItems() {
       /MK_OK/.test(tempTests) &&
       /codex-tmp/i.test(tempTests) &&
       leftovers.length === 0 &&
+      temp.result?.tempCleanup?.removed?.length === 0 &&
       (temp.result?.tempCleanup?.failed?.length ?? 0) === 0,
-    `exit=${temp.exitCode} ${tempTests || temp.result?.reason || temp.stderr} 남은 항목=${leftovers.length}`
+    `exit=${temp.exitCode} ${tempTests || temp.result?.reason || temp.stderr} 래퍼가 치운 항목=${temp.result?.tempCleanup?.removed?.length ?? "?"} 남은 항목=${leftovers.length}`
   );
 
   const usageFile = path.join(workspace, USAGE_FILE);
@@ -349,7 +350,7 @@ function runCodexItems() {
   const okLines = lines.filter((item) => item.exitCode === EXIT.OK);
   const usageOk =
     okLines.length > 0 &&
-    okLines.every((item) => item.tokens?.total_tokens > 0 && typeof item.weeklyEnd === "number" && typeof item.subagentCount === "number" && "totalTokens" in item);
+    okLines.every((item) => item.tokens?.total_tokens > 0 && typeof item.weeklyEnd === "number" && typeof item.subagentCount === "number" && "subagentTokens" in item && "totalTokens" in item);
   record("8. 사용량 기록", usageOk, `기록 ${lines.length}줄, 성공 호출 ${okLines.length}줄, 하위 에이전트 합계 ${okLines.reduce((sum, item) => sum + (item.subagentCount ?? 0), 0)}개`);
 
   // 9번은 마지막에 한다: 래퍼가 중단 뒤 2분을 기다리며 바뀐 파일을 기록하므로 호출이 오래 걸린다.
