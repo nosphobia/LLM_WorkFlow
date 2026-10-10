@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync, spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
-import { defaultPaths, PLUGIN_ROOT, EXIT } from "./lib/pins.mjs";
+import { defaultPaths, PLUGIN_ROOT, EXIT, DEFAULT_TIMEOUT_MIN } from "./lib/pins.mjs";
 import {
   RUN_ROLES,
   fillCurly,
@@ -66,6 +66,12 @@ const positive = /^[1-9]\d*$/;
 if (args.round !== undefined && !/^\d+$/.test(args.round)) fail("--round는 0 이상의 정수여야 합니다");
 if (command === "run" && args.round === "0" && args.role !== "fix") fail("--round 0은 --role fix(우려 처리)에서만 쓴다");
 if (args.task !== undefined && !positive.test(args.task) && !(command === "review" && args.kind === "rereview" && args.task === "final")) fail("--task는 1 이상의 정수여야 합니다");
+
+let timeoutMin = DEFAULT_TIMEOUT_MIN;
+if (args["timeout-min"] !== undefined) {
+  timeoutMin = Number(args["timeout-min"]);
+  if (!(timeoutMin > 0) || !Number.isFinite(timeoutMin)) fail("--timeout-min은 0보다 큰 수여야 합니다");
+}
 
 const repo = path.resolve(args.cwd);
 const planFile = path.resolve(repo, args.plan);
@@ -131,8 +137,22 @@ if (command === "review") {
   if (kind !== "final" && !args.task) fail("--task가 필요합니다 (최종 수정 재검수는 --task final)");
   if (kind === "rereview" && !args.findings) fail("rereview에는 --findings가 필요합니다");
   const head = git("rev-parse", "HEAD");
-  const packageOut = bash("review-package", [planRel, args.base, head]);
-  const pkg = toWin(wrotePath(packageOut));
+  let commitCount = null;
+  try {
+    commitCount = Number(git("rev-list", "--count", `${args.base}..HEAD`));
+  } catch {}
+  let pkg;
+  let packageOut = "";
+  if (commitCount === 0) {
+    // 수정에서 커밋이 없으면(반박) review-package가 빈 범위로 실패한다. 한 줄짜리 자료를 대신 만든다.
+    const base7 = git("rev-parse", args.base).slice(0, 7);
+    const head7 = head.slice(0, 7);
+    pkg = path.join(workspace, `review-${base7}..${head7}-empty.diff`);
+    fs.writeFileSync(pkg, `No new commits in ${base7}..${head7}. The implementer made no code change; judge each finding against the implementer's report (pushback or explanation).\n`);
+  } else {
+    packageOut = bash("review-package", [planRel, args.base, head]);
+    pkg = toWin(wrotePath(packageOut));
+  }
   if (!pkg || !path.win32.isAbsolute(pkg)) fail(`review-package 출력에서 검수 자료 경로를 찾지 못했습니다: "${packageOut.trim()}"`);
   const model = args.model ?? (kind === "final" ? "opus" : "sonnet");
   const constraints = planSection(planText, "Global Constraints") ?? "none";
@@ -215,9 +235,10 @@ const values = {
   FINDINGS_HISTORY_PATH: rel(path.join(workspace, `task-${task}-findings-history.md`)),
   DIFF_PATH: args.diff ? rel(path.resolve(repo, args.diff)) : ""
 };
-const prompt = fillCurly(fs.readFileSync(path.join(execution, templateFor(role)), "utf8"), values);
-const left = leftoverCurly(prompt);
+const promptTemplate = fs.readFileSync(path.join(execution, templateFor(role)), "utf8");
+const left = leftoverCurly(promptTemplate).filter((key) => !(key in values));
 if (left.length > 0) fail(`지시문에 채우지 못한 자리표시자가 있습니다: ${left.join(", ")}`);
+const prompt = fillCurly(promptTemplate, values);
 const promptFile = path.join(workspace, files.prompt);
 fs.writeFileSync(promptFile, prompt);
 
@@ -241,8 +262,8 @@ if (args["dry-run"]) {
 }
 
 if (role === "implement" && !args.thread) appendLedger("progress", `Task ${task}: base ${head.slice(0, 7)}`);
-// 래퍼는 자기 제한 시간(기본 30분)과 중단 뒤 2분 감시를 가진다. 그보다 조금 길게 기다린다.
-const proc = spawnSync(process.execPath, wrapperArgs, { cwd: repo, encoding: "utf8", timeout: (Number(args["timeout-min"] ?? 30) + 5) * 60_000 });
+// 래퍼 한 번은 최대 3턴(첫 턴, 형식 보정, 불일치 보정)이고 턴마다 제한 시간과 중단 뒤 2분 감시가 있다. 그보다 길게 기다린다.
+const proc = spawnSync(process.execPath, wrapperArgs, { cwd: repo, encoding: "utf8", timeout: Math.ceil(3 * timeoutMin + 10) * 60_000 });
 const exitCode = proc.status ?? EXIT.FAILED;
 let result = null;
 let resultError = null;

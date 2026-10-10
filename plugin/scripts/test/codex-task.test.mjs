@@ -183,3 +183,33 @@ test("run: 우려 처리(fix round 0)가 끝나면 첫 작업 검수로, round 1
     assert.match(proc.stdout, expected);
   }
 });
+
+test("run: 잘못된 --timeout-min은 3으로 끝나고 지시문과 기록을 만들지 않는다", { skip }, () => {
+  for (const bad of ["abc", "0", "-1"]) {
+    const { repo } = makeRepo();
+    const run = runTask(repo, ["run", "--role", "implement", "--task", "1", "--timeout-min", bad]);
+    assert.equal(run.status, 3, bad);
+    assert.match(run.stderr, /--timeout-min/, bad);
+    assert.ok(!fs.existsSync(path.join(repo, ".superpowers")), bad);
+  }
+});
+
+test("run: 맥락 파일 안의 {{NAME}}은 채우지 못한 자리표시자로 보지 않는다", { skip }, () => {
+  const { repo } = makeRepo();
+  fs.writeFileSync(path.join(repo, "ctx.md"), "Template uses {{USER_NAME}} here.\n");
+  const run = runTask(repo, ["run", "--role", "implement", "--task", "1", "--context", "ctx.md", "--dry-run"]);
+  assert.equal(run.status, 0, run.stderr);
+});
+
+test("review: 새 커밋이 없어도 빈 검수 자료를 만들고 0으로 끝난다", { skip }, () => {
+  const { repo, git } = makeRepo();
+  const base = git("rev-parse", "HEAD");
+  fs.writeFileSync(path.join(repo, "findings.md"), "- f\n");
+  for (const kind of ["rereview", "task"]) {
+    const review = runTask(repo, ["review", "--kind", kind, "--task", "1", "--base", base, "--findings", "findings.md"]);
+    assert.equal(review.status, 0, review.stderr);
+    const packageRel = /package=(\S+)/.exec(review.stdout)?.[1];
+    assert.ok(packageRel, kind);
+    assert.match(fs.readFileSync(path.join(repo, packageRel), "utf8"), /No new commits/);
+  }
+});
