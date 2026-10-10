@@ -55,5 +55,6 @@ test("MCP 상태에서 외부 연결 도구를 찾는다", () => {
   assert.deepEqual(findAppsTools(on), { present: true, tools: ["codex_apps.gmail_send_email", "codex_apps.google_drive_delete_file"] });
   assert.deepEqual(findAppsTools({ data: [{ name: "node_repl", tools: { js: {} } }] }), { present: false, tools: [] });
   assert.deepEqual(findAppsTools({ data: [{ name: "codex_apps", toolsError: "x" }] }), { present: true, tools: [] });
-  assert.deepEqual(findAppsTools(null), { present: false, tools: [] });
+  assert.throws(() => findAppsTools(null), /mcpServerStatus\/list/);
+  assert.throws(() => findAppsTools({}), /mcpServerStatus\/list/);
 });

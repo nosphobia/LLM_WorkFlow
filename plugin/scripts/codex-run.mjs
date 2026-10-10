@@ -48,16 +48,29 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DIRECT_REQUEST_TIMEOUT_MS = 60_000;
 async function withDirectClient(cwd, fn) {
   const { CodexAppServerClient } = await import(pathToFileURL(paths.codexAppServerLib).href);
-  const client = await CodexAppServerClient.connect(cwd, { disableBroker: true });
   let timer;
+  let timedOut = false;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("Codex 앱 서버 응답 시간 초과 (60초)"));
+    }, DIRECT_REQUEST_TIMEOUT_MS);
+  });
+  // 연결이 시간 초과 뒤에야 끝나면 닫을 클라이언트가 늦게 생긴다. 그때 닫는다.
+  const connecting = CodexAppServerClient.connect(cwd, { disableBroker: true });
+  connecting.then(
+    (late) => {
+      if (timedOut) late.close().catch(() => {});
+    },
+    () => {}
+  );
+  let client = null;
   try {
-    const timeout = new Promise((_, reject) => {
-      timer = setTimeout(() => reject(new Error("Codex 앱 서버 응답 시간 초과 (60초)")), DIRECT_REQUEST_TIMEOUT_MS);
-    });
+    client = await Promise.race([connecting, timeout]);
     return await Promise.race([fn(client), timeout]);
   } finally {
     clearTimeout(timer);
-    await client.close();
+    if (client) await client.close();
   }
 }
 
@@ -219,7 +232,7 @@ const deps = {
       readText,
       fileExists: (file) => fs.existsSync(file),
       // 원격 마켓플레이스 목록 때문에 출력이 1MiB를 넘을 수 있다(2026-10-10 약 1.06MB).
-      codexPluginList: () => execSync("codex plugin list", { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 })
+      codexPluginList: () => execSync("codex plugin list", { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024, timeout: 120_000 })
     }),
   prepareProjectConfig,
   projectConfigHash: () => hashText(readText(configFile) ?? ""),

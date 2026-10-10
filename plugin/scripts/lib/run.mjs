@@ -261,6 +261,10 @@ function buildWarnings(state) {
 
 function finalize(options, deps, state, startedAt, exitCode, reason) {
   if (state.codexRan) inspectAfterCodex(options, deps, state, startedAt);
+  if (exitCode === EXIT.STOPPED && state.protectedChanges.length > 0) {
+    exitCode = EXIT.FAILED;
+    reason = `보호 경로 변경: ${state.protectedChanges.join(", ")}`;
+  }
   const finishedAt = deps.now();
   const mainTokens = sumTokens(state.turns.map((turn) => turn.tokens));
   const subagentTokens = sumTokens(state.subagents.map((child) => child.tokens));
@@ -339,7 +343,9 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
       }
     }
   }
-  return { exitCode, result, summaryLine: formatSummary(result, options.out) };
+  let summaryLine = formatSummary(result, options.out);
+  if (options.action === "check") for (const warning of result.warnings) summaryLine += `\nwarning: ${warning}`;
+  return { exitCode, result, summaryLine };
 }
 
 export function formatSummary(result, out) {

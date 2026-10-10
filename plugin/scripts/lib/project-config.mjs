@@ -44,7 +44,8 @@ export function checkEffectiveConfig(configRead, { repoDir, shimDir }) {
 }
 
 export function findAppsTools(statusResponse) {
-  const servers = (statusResponse?.data ?? []).filter((server) => server?.name === "codex_apps");
+  if (!Array.isArray(statusResponse?.data)) throw new Error("mcpServerStatus/list 응답 형식이 예상과 다릅니다");
+  const servers = statusResponse.data.filter((server) => server?.name === "codex_apps");
   return {
     present: servers.length > 0,
     tools: servers.flatMap((server) => Object.keys(server.tools ?? {}).map((tool) => `codex_apps.${tool}`)).sort()

@@ -37,4 +37,7 @@ test("이번 호출에서 생긴 하위와 그 하위만 찾는다", () => {
   assert.deepEqual(found.map((child) => child.threadId).sort(), ["c1", "g1"]);
   assert.deepEqual(findSubagents(dir, null, since), []);
   assert.deepEqual(findSubagents(path.join(dir, "missing"), "p1", since), []);
+
+  const locked = { ...fs, readFileSync: (file, ...rest) => { if (String(file).includes("rollout-c-")) throw Object.assign(new Error("busy"), { code: "EBUSY" }); return fs.readFileSync(file, ...rest); } };
+  assert.deepEqual(findSubagents(dir, "p1", since, locked).map((child) => child.threadId), ["c1"]);
 });

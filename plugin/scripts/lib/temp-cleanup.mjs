@@ -6,7 +6,14 @@ import path from "node:path";
 export function emptyDir(dir, fsx = fs) {
   const result = { removed: [], failed: [] };
   if (!fsx.existsSync(dir)) return result;
-  for (const name of fsx.readdirSync(dir)) {
+  let names;
+  try {
+    names = fsx.readdirSync(dir);
+  } catch (error) {
+    if (error?.code !== "ENOENT") result.failed.push(`${dir}: ${error?.code ?? error?.message ?? error}`);
+    return result;
+  }
+  for (const name of names) {
     try {
       fsx.rmSync(path.join(dir, name), { recursive: true, force: true });
       result.removed.push(name);

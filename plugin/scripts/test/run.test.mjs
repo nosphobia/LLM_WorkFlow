@@ -557,3 +557,19 @@ test("check는 외부 연결 도구가 켜져 있으면 5, 꺼져 있으면 개�
   assert.equal(passed.result.reason, "환경 점검 통과 (외부 연결 도구 0개)");
   assert.equal(off.calls.runTurn.length, 0);
 });
+
+test("check는 경고를 요약 줄 뒤에 한 줄씩 보여 준다", async () => {
+  const { run } = setup({ options: { action: "check" }, deps: { prepareProjectConfig: async () => ({ hash: "h1", warnings: ["설정 경고 하나"], problems: [] }) } });
+  const { summaryLine } = await run();
+  const lines = summaryLine.split("\n");
+  assert.match(lines[0], /^codex-run exit=0 /);
+  assert.equal(lines[1], "warning: 설정 경고 하나");
+});
+
+test("NEEDS_CONTEXT인데 보호 경로가 바뀌었으면 2가 아니라 3", async () => {
+  const { run, calls } = setup({ replies: [STOP_REPORT], changed: [[], ["CLAUDE.md"]] });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.equal(result.reason, "보호 경로 변경: CLAUDE.md");
+  assert.equal(calls.commit.length, 0);
+});

@@ -33,15 +33,14 @@ export function findSubagents(sessionsDir, parentThreadId, sinceMs, fsx = fs) {
   for (const name of fsx.readdirSync(sessionsDir, { recursive: true })) {
     const file = path.join(sessionsDir, String(name));
     if (!file.endsWith(".jsonl")) continue;
-    let stat;
     try {
-      stat = fsx.statSync(file);
+      const stat = fsx.statSync(file);
+      // 이번 호출 전에 끝난 기록은 앞 호출의 하위 에이전트다. 같은 대화를 이어갈 때 두 번 세지 않는다.
+      if (stat.mtimeMs < sinceMs) continue;
+      candidates.push(parseChildRollout(fsx.readFileSync(file, "utf8")));
     } catch {
       continue;
     }
-    // 이번 호출 전에 끝난 기록은 앞 호출의 하위 에이전트다. 같은 대화를 이어갈 때 두 번 세지 않는다.
-    if (stat.mtimeMs < sinceMs) continue;
-    candidates.push(parseChildRollout(fsx.readFileSync(file, "utf8")));
   }
   const parents = new Set([parentThreadId]);
   const found = [];

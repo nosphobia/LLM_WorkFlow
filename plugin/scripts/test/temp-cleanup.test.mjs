@@ -33,6 +33,14 @@ test("저장소 최상위 폴더 목록은 관리용 폴더와 파일을 뺀다"
   assert.deepEqual(listRootDirs(dir), ["src", "tests"]);
 });
 
+test("폴더를 읽지 못해도 던지지 않고 failed에 담는다", () => {
+  const fsx = { existsSync: () => true, readdirSync: () => { throw Object.assign(new Error("denied"), { code: "EPERM" }); } };
+  const result = emptyDir("/x/tmp", fsx);
+  assert.deepEqual(result.removed, []);
+  assert.equal(result.failed.length, 1);
+  assert.match(result.failed[0], /EPERM/);
+});
+
 test("새로 생겼고 git이 무시하지 않으며 변경이 없는 폴더만 수상하다", () => {
   const before = ["src"];
   const after = ["cache", "pkg", "src", "tmpabc"];
