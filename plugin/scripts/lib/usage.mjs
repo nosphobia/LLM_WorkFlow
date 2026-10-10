@@ -44,6 +44,10 @@ export function summarizeCalls(text) {
     mismatchCorrections: sumField(calls, "mismatchCorrections"),
     durationSec: calls.reduce((sum, call) => sum + (Number(call.durationSec) || 0), 0),
     tokens: sumTokens(calls.map((call) => call.tokens)),
+    subagentCount: sumField(calls, "subagentCount"),
+    subagentTokens: sumTokens(calls.map((call) => call.subagentTokens)),
+    totalTokens: sumTokens(calls.flatMap((call) => [call.tokens, call.subagentTokens])),
+    riskyCommands: sumField(calls, "riskyCommands"),
     weeklyStart: calls.find((call) => call.weeklyStart !== null && call.weeklyStart !== undefined)?.weeklyStart ?? null,
     weeklyEnd: [...calls].reverse().find((call) => call.weeklyEnd !== null && call.weeklyEnd !== undefined)?.weeklyEnd ?? null
   };

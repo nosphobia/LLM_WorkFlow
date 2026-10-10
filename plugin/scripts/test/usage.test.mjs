@@ -34,3 +34,16 @@ test("호출 기록 합계를 낸다", () => {
   assert.equal(summary.weeklyStart, 12);
   assert.equal(summary.weeklyEnd, 15);
 });
+
+test("하위 에이전트 토큰과 수, 위험 명령 수를 합친다 (옛 기록은 없는 것으로 본다)", () => {
+  const lines = [
+    { role: "implement", exitCode: 0, tokens: { total_tokens: 100 }, subagentCount: 2, subagentTokens: { total_tokens: 40 }, riskyCommands: 1 },
+    { role: "fix", exitCode: 0, tokens: { total_tokens: 50 } }
+  ].map((value) => JSON.stringify(value)).join("\n");
+  const summary = summarizeCalls(lines);
+  assert.equal(summary.subagentCount, 2);
+  assert.equal(summary.subagentTokens.total_tokens, 40);
+  assert.equal(summary.tokens.total_tokens, 150);
+  assert.equal(summary.totalTokens.total_tokens, 190);
+  assert.equal(summary.riskyCommands, 1);
+});
