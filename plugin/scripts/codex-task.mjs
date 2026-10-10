@@ -62,6 +62,9 @@ try {
   fail(error.message);
 }
 if (!args.cwd || !args.plan) fail("--cwd와 --plan이 필요합니다");
+const positive = /^[1-9]\d*$/;
+if (args.round !== undefined && !positive.test(args.round)) fail("--round는 1 이상의 정수여야 합니다");
+if (args.task !== undefined && !positive.test(args.task) && !(command === "review" && args.kind === "rereview" && args.task === "final")) fail("--task는 1 이상의 정수여야 합니다");
 
 const repo = path.resolve(args.cwd);
 const planFile = path.resolve(repo, args.plan);
@@ -72,6 +75,16 @@ const planRel = rel(planFile);
 const sp = path.join(defaultPaths().superpowersRoot, "skills");
 const execution = path.join(PLUGIN_ROOT, "skills", "codex-execution");
 const git = (...gitArgs) => execFileSync("git", ["-C", repo, ...gitArgs], { encoding: "utf8" }).trim();
+
+// Git Bash가 출력한 경로를 cygpath로 바꾼다. 실패하거나 비면 순수 함수로 대신한다.
+function toWin(value) {
+  if (!value) return value;
+  try {
+    const out = execFileSync("bash", ["-c", 'cygpath -w "$1"', "_", value], { encoding: "utf8", timeout: 30_000, stdio: ["ignore", "pipe", "ignore"] }).trim();
+    if (out) return out;
+  } catch {}
+  return fromBashPath(value);
+}
 
 function bash(name, scriptArgs) {
   const proc = spawnSync("bash", [path.join(sp, "subagent-driven-development", "scripts", name), ...scriptArgs], {
@@ -86,7 +99,14 @@ function bash(name, scriptArgs) {
 if (args.findings && !fs.existsSync(path.resolve(repo, args.findings))) fail(`지적 파일이 없습니다: ${args.findings}`);
 if (args.diff && !fs.existsSync(path.resolve(repo, args.diff))) fail(`검수 자료 파일이 없습니다: ${args.diff}`);
 
-const workspace = fromBashPath(bash("sdd-workspace", [planRel]).trim().split(/\r?\n/).pop());
+const workspaceOut = bash("sdd-workspace", [planRel]).trim().split(/\r?\n/).pop();
+const workspace = toWin(workspaceOut);
+{
+  const base = path.win32.join(repo, ".superpowers", "sdd");
+  if (!workspace || !path.win32.isAbsolute(workspace)) fail(`sdd-workspace가 절대 경로를 출력하지 않았습니다: "${workspaceOut}"`);
+  const inside = path.win32.relative(base, workspace).toLowerCase();
+  if (inside === "" || inside.startsWith("..") || path.win32.isAbsolute(inside)) fail(`sdd-workspace 경로가 ${base} 아래가 아닙니다: "${workspaceOut}"`);
+}
 
 function appendLedger(which, text) {
   const file = path.join(workspace, `${which}.md`);
@@ -110,8 +130,9 @@ if (command === "review") {
   if (kind !== "final" && !args.task) fail("--task가 필요합니다 (최종 수정 재검수는 --task final)");
   if (kind === "rereview" && !args.findings) fail("rereview에는 --findings가 필요합니다");
   const head = git("rev-parse", "HEAD");
-  const pkg = fromBashPath(wrotePath(bash("review-package", [planRel, args.base, head])));
-  if (!pkg) fail("review-package 출력에서 검수 자료 경로를 찾지 못했습니다");
+  const packageOut = bash("review-package", [planRel, args.base, head]);
+  const pkg = toWin(wrotePath(packageOut));
+  if (!pkg || !path.win32.isAbsolute(pkg)) fail(`review-package 출력에서 검수 자료 경로를 찾지 못했습니다: "${packageOut.trim()}"`);
   const model = args.model ?? (kind === "final" ? "opus" : "sonnet");
   const constraints = planSection(planText, "Global Constraints") ?? "none";
   const template = (file) => extractTemplatePrompt(fs.readFileSync(path.join(sp, file), "utf8"));
@@ -172,7 +193,12 @@ const round = args.round === undefined ? null : Number(args.round);
 const required = { implement: [], fix: ["round", "findings", "thread"], handoff: ["round", "diff"], "final-fix": ["findings", "diff"] }[role];
 for (const key of required) if (args[key] === undefined) fail(`${role}에는 --${key}가 필요합니다`);
 
-const brief = role === "implement" ? fromBashPath(wrotePath(bash("task-brief", [planRel, task]))) : path.join(workspace, `task-${task}-brief.md`);
+let brief = path.join(workspace, `task-${task}-brief.md`);
+if (role === "implement") {
+  const briefOut = bash("task-brief", [planRel, task]);
+  brief = toWin(wrotePath(briefOut));
+  if (!brief || !path.win32.isAbsolute(brief)) fail(`task-brief 출력에서 작업 지시 파일 경로를 찾지 못했습니다: "${briefOut.trim()}"`);
+}
 const files = runFiles({ role, task, round });
 const values = {
   TASK_NUMBER: task ?? "",
@@ -198,7 +224,9 @@ const head = git("rev-parse", "HEAD");
 const call = wrapperCall({ role, thread: args.thread, round });
 const stamp = new Date().toISOString().replace(/[:.]/g, "-");
 const out = path.join(workspace, "codex-results", `${stamp}-${call.role}${task ? `-t${task}` : ""}.json`);
-const wrapperArgs = [path.join(PLUGIN_ROOT, "scripts", "codex-run.mjs"), call.action, "--cwd", repo, "--prompt-file", promptFile, "--workspace", workspace, "--role", call.role, "--out", out];
+// LLM_WORKFLOW_CODEX_RUN_SCRIPT는 시험에서 가짜 래퍼로 바꿔 끼우기 위한 것이다.
+const wrapperScript = process.env.LLM_WORKFLOW_CODEX_RUN_SCRIPT || path.join(PLUGIN_ROOT, "scripts", "codex-run.mjs");
+const wrapperArgs = [wrapperScript, call.action, "--cwd", repo, "--prompt-file", promptFile, "--workspace", workspace, "--role", call.role, "--out", out];
 if (task) wrapperArgs.push("--task", task);
 if (call.round !== null) wrapperArgs.push("--round", String(call.round));
 if (args.thread) wrapperArgs.push("--thread", args.thread);
@@ -215,7 +243,16 @@ if (role === "implement" && !args.thread) appendLedger("progress", `Task ${task}
 // 래퍼는 자기 제한 시간(기본 30분)과 중단 뒤 2분 감시를 가진다. 그보다 조금 길게 기다린다.
 const proc = spawnSync(process.execPath, wrapperArgs, { cwd: repo, encoding: "utf8", timeout: (Number(args["timeout-min"] ?? 30) + 5) * 60_000 });
 const exitCode = proc.status ?? EXIT.FAILED;
-const result = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, "utf8")) : null;
+let result = null;
+let resultError = null;
+if (!fs.existsSync(out)) resultError = `래퍼가 결과 파일을 만들지 않았습니다: ${out}`;
+else {
+  try {
+    result = JSON.parse(fs.readFileSync(out, "utf8"));
+  } catch (error) {
+    resultError = `래퍼 결과 파일을 읽지 못했습니다: ${out} (${error.message})`;
+  }
+}
 
 const label = role === "final-fix" ? "Final fix" : `Task ${task}`;
 const roleNote = role === "implement" ? "" : role === "final-fix" ? "" : ` (${role} round ${call.round})`;
@@ -256,4 +293,8 @@ if (exitCode === EXIT.OK && role === "implement") {
 }
 if (result?.status === "DONE_WITH_CONCERNS") next = `우려를 먼저 읽는다. ${next}`;
 console.log(`next: ${next}`);
+if (resultError) {
+  console.error(`codex-task run: ${resultError}`);
+  process.exit(exitCode !== 0 ? exitCode : EXIT.FAILED);
+}
 process.exit(exitCode);

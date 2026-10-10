@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import {
   fillCurly,
   fillSquare,
@@ -85,4 +87,16 @@ test("역할별 틀, 파일 이름, 래퍼 호출 방식", () => {
   assert.deepEqual(wrapperCall({ role: "fix", thread: "t", round: 2 }), { action: "resume", role: "fix", round: 2 });
   assert.deepEqual(wrapperCall({ role: "handoff", round: 4 }), { action: "start", role: "fix", round: 4 });
   assert.deepEqual(wrapperCall({ role: "final-fix" }), { action: "start", role: "final-fix", round: null });
+});
+
+test("fromBashPath는 /tmp와 드라이브 경로를 바꾸고 나머지는 그대로 둔다", () => {
+  assert.equal(fromBashPath("/tmp"), os.tmpdir());
+  assert.equal(fromBashPath("/tmp/a/b"), path.win32.join(os.tmpdir(), "a", "b"));
+  assert.equal(fromBashPath("/tmpfoo/x"), "/tmpfoo/x");
+  assert.equal(fromBashPath("/d/Work/x"), "D:\\Work\\x");
+});
+
+test("fromBashPath는 cygpath -w와 같은 답을 낸다", { skip: spawnSync("bash", ["-c", "cygpath -w /tmp"], { encoding: "utf8" }).status === 0 ? false : "Git Bash가 있어야 한다" }, () => {
+  const cyg = spawnSync("bash", ["-c", "cygpath -w /tmp/x"], { encoding: "utf8" }).stdout.trim();
+  assert.equal(fromBashPath("/tmp/x"), cyg);
 });

@@ -90,3 +90,75 @@ test("review --kind task는 검수 자료와 채운 검수 지시 파일을 만�
   assert.match(prompt, /Implementer concerns/);
   for (const key of ["BRIEF_FILE", "REPORT_FILE", "BASE_SHA", "HEAD_SHA", "DIFF_FILE", "GLOBAL_CONSTRAINTS"]) assert.ok(!prompt.includes(`[${key}]`), key);
 });
+
+// 가짜 래퍼: --out에 결과 JSON을 쓰고 환경 변수로 정한 코드로 끝난다. Codex를 부르지 않는다.
+function makeFake(repo) {
+  const fake = path.join(path.dirname(repo), "fake-codex-run.mjs");
+  fs.writeFileSync(
+    fake,
+    [
+      'import fs from "node:fs";',
+      'const argv = process.argv.slice(2);',
+      'const out = argv[argv.indexOf("--out") + 1];',
+      'import path from "node:path"; fs.mkdirSync(path.dirname(out), { recursive: true });',
+      'if (process.env.FAKE_MODE === "badjson") fs.writeFileSync(out, "{not json");',
+      'else if (process.env.FAKE_MODE !== "nofile") fs.writeFileSync(out, JSON.stringify({',
+      '  status: "DONE", threadId: "thr-1", commit: "abc1234", warnings: ["네트워크 명령 감지 1", "some other warning"],',
+      '  networkCommands: [{ command: "curl x" }], riskyCommands: [{ matches: ["rm"], command: "rm -rf y" }],',
+      '  subagents: [{ id: "s1" }], usage: { totalTokens: { total_tokens: 1234 }, subagentCount: 1 }',
+      "}));",
+      'console.log("fake wrapper done");',
+      'process.exit(Number(process.env.FAKE_EXIT ?? 0));'
+    ].join("\n")
+  );
+  return fake;
+}
+
+function runFake(repo, mode, exit) {
+  const fake = makeFake(repo);
+  const proc = spawnSync(process.execPath, [script, "run", "--role", "implement", "--task", "1", "--cwd", repo, "--plan", "docs/plan.md"], {
+    cwd: repo,
+    encoding: "utf8",
+    timeout: 120_000,
+    env: { ...process.env, LLM_WORKFLOW_CODEX_RUN_SCRIPT: fake, FAKE_EXIT: String(exit), FAKE_MODE: mode }
+  });
+  const ledger = fs.readdirSync(path.join(repo, ".superpowers", "sdd"), { recursive: true }).find((name) => String(name).endsWith("progress.md"));
+  return { proc, ledger: fs.readFileSync(path.join(repo, ".superpowers", "sdd", String(ledger)), "utf8") };
+}
+
+test("run: 가짜 래퍼 성공 시 진행 기록에 기준 줄, 호출 뒤 줄, 경고 줄이 남는다", { skip }, () => {
+  const { repo } = makeRepo();
+  const { proc, ledger } = runFake(repo, "ok", 0);
+  assert.equal(proc.status, 0, proc.stderr);
+  assert.match(ledger, /- Task 1: base [0-9a-f]{7}\n/);
+  assert.match(ledger, /- Task 1: codex thread thr-1 — exit 0 DONE, commit abc1234, tokens 1234, subagents 1\n/);
+  assert.match(ledger, /- 네트워크 경고: curl x\n/);
+  assert.match(ledger, /- 위험 명령 경고: rm: rm -rf y\n/);
+  assert.match(ledger, /- 하위 에이전트 경고: thr-1 1개\n/);
+  assert.match(ledger, /- 래퍼 경고: some other warning\n/);
+  assert.doesNotMatch(ledger, /래퍼 경고: 네트워크 명령 감지/);
+});
+
+test("run: 래퍼가 3으로 끝나도 호출 뒤 줄을 쓰고 3을 돌려준다", { skip }, () => {
+  const { repo } = makeRepo();
+  const { proc, ledger } = runFake(repo, "ok", 3);
+  assert.equal(proc.status, 3);
+  assert.match(ledger, /- Task 1: codex thread thr-1 — exit 3 DONE, commit abc1234/);
+});
+
+test("run: 결과 파일이 깨졌거나 없으면 3, 래퍼가 0이 아니면 그 코드를 그대로 돌려준다", { skip }, () => {
+  for (const mode of ["badjson", "nofile"]) {
+    const ok = runFake(makeRepo().repo, mode, 0);
+    assert.equal(ok.proc.status, 3, mode);
+    assert.match(ok.proc.stderr, /래퍼/, mode);
+    assert.match(ok.ledger, /exit 0 -, commit -/, mode);
+    assert.equal(runFake(makeRepo().repo, mode, 2).proc.status, 2, mode);
+  }
+});
+
+test("--round와 --task는 양의 정수여야 한다", { skip }, () => {
+  const { repo } = makeRepo();
+  assert.match(runTask(repo, ["run", "--role", "implement", "--task", "1x", "--dry-run"]).stderr, /--task/);
+  assert.equal(runTask(repo, ["run", "--role", "implement", "--task", "1", "--round", "0", "--dry-run"]).status, 3);
+  assert.equal(runTask(repo, ["review", "--kind", "task", "--task", "abc", "--base", "HEAD"]).status, 3);
+});
