@@ -68,7 +68,8 @@ const deps = {
       paths,
       readText,
       fileExists: (file) => fs.existsSync(file),
-      codexPluginList: () => execSync("codex plugin list", { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })
+      // 원격 마켓플레이스 목록 때문에 출력이 1MiB를 넘을 수 있다(2026-10-10 약 1.06MB).
+      codexPluginList: () => execSync("codex plugin list", { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024 })
     }),
   ensureWorkspace: (dir) => {
     fs.mkdirSync(dir, { recursive: true });
