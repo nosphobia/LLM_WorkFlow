@@ -4,7 +4,7 @@ export function trailerModel(commitMessage) {
   return match ? match[1] : null;
 }
 
-export function evaluateBoundary(testsLine, { outsideFileExists, gitFileExists }) {
+export function evaluateBoundary(testsLine, { outsideFileExists, gitFileExists, shimFileExists = false }) {
   const text = String(testsLine ?? "");
   let probe = null;
   try {
@@ -16,10 +16,13 @@ export function evaluateBoundary(testsLine, { outsideFileExists, gitFileExists }
 
   // Windows unelevated 샌드박스는 네트워크를 막지 못한다. 파일 경계만 판정하고 네트워크는 기록만 한다.
   const networkAllowed = probe.network === "allowed";
+  const shimChecked = "shim_write" in probe;
   const problems = [];
   if (probe.outside_write !== "denied" || outsideFileExists) problems.push("저장소 밖 쓰기가 허용됨");
   if (probe.git_write !== "denied" || gitFileExists) problems.push(".git 쓰기가 허용됨");
+  if (shimChecked && (probe.shim_write !== "denied" || shimFileExists)) problems.push("보정 모듈 폴더 쓰기가 허용됨");
   if (problems.length > 0) return { pass: false, detail: problems.join(", "), networkAllowed };
   const network = networkAllowed ? "허용됨 (알려진 한계: Windows unelevated 샌드박스)" : "거부됨";
-  return { pass: true, detail: `저장소 밖 쓰기와 .git 쓰기가 거부됨; 네트워크: ${network}`, networkAllowed };
+  const shimNote = shimChecked ? ", 보정 모듈 폴더 쓰기도 거부됨" : "";
+  return { pass: true, detail: `저장소 밖 쓰기와 .git 쓰기가 거부됨${shimNote}; 네트워크: ${network}`, networkAllowed };
 }

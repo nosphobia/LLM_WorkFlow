@@ -48,3 +48,15 @@ test("점검 출력을 읽을 수 없으면 실패다", () => {
   assert.equal(evaluateBoundary("none", { outsideFileExists: false, gitFileExists: false }).pass, false);
   assert.equal(evaluateBoundary(undefined, { outsideFileExists: false, gitFileExists: false }).pass, false);
 });
+
+test("보정 모듈 폴더 쓰기 결과가 있으면 함께 판정한다", () => {
+  const withShim = '{"outside_write": "denied", "git_write": "denied", "shim_write": "denied", "network": "denied"}';
+  const ok = evaluateBoundary(withShim, { outsideFileExists: false, gitFileExists: false, shimFileExists: false });
+  assert.equal(ok.pass, true);
+  assert.match(ok.detail, /보정 모듈 폴더 쓰기도 거부됨/);
+  const allowed = '{"outside_write": "denied", "git_write": "denied", "shim_write": "allowed", "network": "denied"}';
+  const bad = evaluateBoundary(allowed, { outsideFileExists: false, gitFileExists: false });
+  assert.equal(bad.pass, false);
+  assert.match(bad.detail, /보정 모듈 폴더 쓰기가 허용됨/);
+  assert.equal(evaluateBoundary(withShim, { outsideFileExists: false, gitFileExists: false, shimFileExists: true }).pass, false);
+});
