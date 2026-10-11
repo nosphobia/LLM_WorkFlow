@@ -77,14 +77,14 @@ test("고정된 Superpowers 6.4.1에 스킬이 참조하는 파일이 모두 있
 
 test("실행 스킬은 작업 스크립트, 한도 확인, 멈춤과 재개, 사람 확인 규칙을 담는다", () => {
   const skill = read("codex-execution", "SKILL.md");
-  for (const phrase of ["codex-task.mjs", "limits --cwd <저장소> --phase execute", "멈춤:", "이어서 진행", "사람 확인", "Final review:", "Final re-review:", "Usage log:", "Broker: closed", "[개발 중 · 큰 문제]", "보정 모듈 없이", "같은 역할과 같은 라운드", "No new commits"]) {
+  for (const phrase of ["codex-task.mjs", "limits --cwd <저장소> --phase execute", "멈춤:", "이어서 진행", "사람 확인", "Final review:", "Final re-review:", "Usage log:", "Broker: closed", "[개발 중 · 큰 문제]", "보정 모듈 없이", "같은 역할과 같은 라운드", "No new commits", "묻지 않고 작업 브랜치", "측정: 예", "재개 승인", "짧은 진행 알림도"]) {
     assert.ok(skill.includes(phrase), phrase);
   }
 });
 
 test("계획 스킬은 한도 확인, 계획 검토 요청 줄, 멈춤과 재개 규칙을 담는다", () => {
   const skill = read("codex-planning", "SKILL.md");
-  for (const phrase of ["limits --cwd <저장소> --phase plan", "계획 검토: 요청", "멈춤:", "이어서 진행", "Plan: committed", "Plan review:", "[기획 · 큰 문제]"]) {
+  for (const phrase of ["limits --cwd <저장소> --phase plan", "계획 검토: 요청", "멈춤:", "이어서 진행", "Plan: committed", "Plan review:", "[기획 · 큰 문제]", "묻지 않고 작업 브랜치", "측정: 예", "재개 승인", "짧은 진행 알림도"]) {
     assert.ok(skill.includes(phrase), phrase);
   }
 });
