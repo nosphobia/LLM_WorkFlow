@@ -546,6 +546,33 @@ test("저장소 최상위에 git에 보이지 않는 새 폴더가 생기면 경
   assert.ok(result.warnings.includes("저장소 최상위에 git에 보이지 않는 새 폴더: tmpxyz"));
 });
 
+test("같은 호출에서 커밋된 새 폴더는 커밋 뒤 변경 목록이 비어도 경고하지 않는다", async () => {
+  let committed = false;
+  const roots = [["src"], ["src", "pkg"]];
+  let listCalls = 0;
+  const { run, calls } = setup({
+    replies: [DONE("pkg/a.py")],
+    deps: {
+      // 첫 호출은 시작 전 점검(깨끗함), 이후는 커밋 전까지 pkg/a.py, 커밋 뒤에는 빈 목록
+      listChangedFiles: () => {
+        listCalls += 1;
+        return listCalls === 1 || committed ? [] : ["pkg/a.py"];
+      },
+      commitFiles: (cwd, files) => {
+        committed = true;
+        calls.commit.push({ files });
+        return "abc1234";
+      },
+      listRootDirs: () => roots.shift()
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.deepEqual(calls.commit[0].files, ["pkg/a.py"]);
+  assert.deepEqual(result.newRootDirs, []);
+  assert.ok(!result.warnings.some((w) => w.includes("새 폴더")));
+});
+
 test("check는 외부 연결 도구가 켜져 있으면 5, 꺼져 있으면 개수를 알린다", async () => {
   const on = setup({ options: { action: "check" }, deps: { checkAppsTools: async () => ({ problems: ["외부 연결 도구가 켜져 있습니다: codex_apps 도구 190개"], toolCount: 190 }) } });
   const failed = await on.run();
