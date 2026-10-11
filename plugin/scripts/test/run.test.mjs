@@ -573,6 +573,31 @@ test("같은 호출에서 커밋된 새 폴더는 커밋 뒤 변경 목록이 �
   assert.ok(!result.warnings.some((w) => w.includes("새 폴더")));
 });
 
+test("resume에서 이전 차례가 남긴 변경이 있고 보고에 둘 다 있으면 둘 다 커밋하고 0", async () => {
+  const { run, calls } = setup({
+    replies: [DONE("a.txt, b.txt")],
+    changed: [["a.txt", "b.txt"]],
+    options: { action: "resume", threadId: "thread-1" }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(result.corrections, 0);
+  assert.deepEqual(calls.commit[0].files, ["a.txt", "b.txt"]);
+});
+
+test("resume에서 남은 변경을 보고에 빼면 정정을 한 번 요청하고, 고쳐지면 0", async () => {
+  const { run, calls } = setup({
+    replies: [DONE("b.txt"), DONE("a.txt, b.txt")],
+    changed: [["a.txt", "b.txt"]],
+    options: { action: "resume", threadId: "thread-1" }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.equal(result.mismatchCorrections, 1);
+  assert.match(calls.runTurn[1].prompt, /Changed but not reported: a\.txt/);
+  assert.deepEqual(calls.commit[0].files, ["a.txt", "b.txt"]);
+});
+
 test("check는 외부 연결 도구가 켜져 있으면 5, 꺼져 있으면 개수를 알린다", async () => {
   const on = setup({ options: { action: "check" }, deps: { checkAppsTools: async () => ({ problems: ["외부 연결 도구가 켜져 있습니다: codex_apps 도구 190개"], toolCount: 190 }) } });
   const failed = await on.run();
