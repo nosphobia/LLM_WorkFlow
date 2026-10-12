@@ -242,7 +242,7 @@ function inspectAfterCodex(options, deps, state, startedAt) {
     if (state.protectedChanges.length === 0) state.protectedChanges = findProtectedChanges(changed, deps.settings.protectedPaths);
     // 이번 호출에서 커밋된 파일은 커밋 뒤 변경 목록에서 빠지므로 함께 넣어야 새 폴더가 git에 보이는 것으로 본다.
     const visible = state.commit ? [...changed, ...(state.report?.changedFiles ?? [])] : changed;
-    state.newRootDirs = suspiciousNewDirs(state.rootBefore, deps.listRootDirs(options.cwd), visible,(name) => deps.isIgnored(options.cwd, name));
+    state.newRootDirs = suspiciousNewDirs(state.rootBefore, deps.listRootDirs(options.cwd), visible, (name) => deps.isIgnored(options.cwd, name));
   } catch (error) {
     state.warnings.push(`호출 뒤 저장소 확인 실패: ${error?.message ?? error}`);
   }
