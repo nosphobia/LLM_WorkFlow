@@ -11,8 +11,6 @@ import { withCommonRules } from "./common-rules.mjs";
 import { isLimitError, weeklyPercent } from "./rollout.mjs";
 import { sumTokens } from "./usage.mjs";
 
-const CONFIG_TAMPERED = "보호 파일 변경: .codex/config.toml";
-
 export async function runWrapper(options, deps) {
   const startedAt = deps.now();
   const state = {
@@ -54,7 +52,11 @@ export async function runWrapper(options, deps) {
 
     const prompt = deps.readText(options.promptFile);
     if (!prompt) return finish(EXIT.FAILED, `지시 파일을 읽을 수 없습니다: ${options.promptFile}`);
-    deps.ensureWorkspace(options.workspace);
+    try {
+      deps.ensureWorkspace(options.workspace);
+    } catch (error) {
+      return finish(EXIT.ENVIRONMENT, `작업 폴더를 준비하지 못했습니다: ${error?.message ?? error}`);
+    }
     if (options.action === "start") {
       const dirty = deps.listChangedFiles(options.cwd);
       if (dirty.length > 0) return finish(EXIT.FAILED, `새 대화를 시작하기 전에 커밋되지 않은 변경이 있습니다: ${dirty.join(", ")}`);
@@ -65,13 +67,31 @@ export async function runWrapper(options, deps) {
     if (limits.status === "short") return finish(EXIT.LIMIT, `한도 부족(호출 전 확인): ${limits.reason}`);
     if (limits.status !== "ok") return finish(EXIT.ENVIRONMENT, `한도 확인 실패: ${limits.reason}`);
 
+    // git이 무시하는 보호 파일(.codex/config.toml, .claude/settings.local.json 등)은 git 대조로 알 수 없다. 호출 전후 해시로 따로 확인한다.
+    let protectedBefore;
+    try {
+      protectedBefore = deps.snapshotProtected(options.cwd);
+    } catch (error) {
+      return finish(EXIT.ENVIRONMENT, `보호 경로를 읽지 못했습니다: ${error?.message ?? error}`);
+    }
+    const protectedTampered = () => {
+      let changed;
+      try {
+        changed = diffSnapshots(protectedBefore, deps.snapshotProtected(options.cwd));
+      } catch (error) {
+        return `보호 파일 확인 실패: ${error?.message ?? error}`;
+      }
+      if (changed.length === 0) return null;
+      state.protectedChanges = changed;
+      return `보호 파일 변경: ${changed.join(", ")}`;
+    };
+
     state.rootBefore = deps.listRootDirs(options.cwd);
     state.codexRan = true;
-    // .codex/config.toml은 git이 무시하므로 git 대조로는 바뀐 것을 알 수 없다. 해시로 따로 확인한다.
-    const configChanged = () => deps.projectConfigHash() !== prepared.hash;
 
     const first = await runTurn(withCommonRules(prompt, deps.settings.protectedPaths), options.action === "resume" ? options.threadId : null);
-    if (configChanged()) return finish(EXIT.FAILED, CONFIG_TAMPERED);
+    let tampered = protectedTampered();
+    if (tampered) return finish(EXIT.FAILED, tampered);
     if (first.exit !== null) return finish(first.exit, first.reason);
     if (options.action === "resume" && first.threadId !== options.threadId) {
       return finish(EXIT.FAILED, `이어간 대화 ID가 다릅니다: 요청 ${options.threadId}, 응답 ${first.threadId}`);
@@ -82,7 +102,8 @@ export async function runWrapper(options, deps) {
       state.corrections += 1;
       state.formatCorrections += 1;
       const again = await runTurn(buildFormatCorrection(report.error), state.threadId);
-      if (configChanged()) return finish(EXIT.FAILED, CONFIG_TAMPERED);
+      tampered = protectedTampered();
+      if (tampered) return finish(EXIT.FAILED, tampered);
       if (again.exit !== null) return finish(again.exit, again.reason);
       report = parseReport(again.finalMessage);
       if (!report.ok) return finish(EXIT.FAILED, `형식 위반 정정 실패: ${report.error}`);
@@ -95,7 +116,8 @@ export async function runWrapper(options, deps) {
       state.corrections += 1;
       state.mismatchCorrections += 1;
       const again = await runTurn(buildMismatchCorrection(comparison), state.threadId);
-      if (configChanged()) return finish(EXIT.FAILED, CONFIG_TAMPERED);
+      tampered = protectedTampered();
+      if (tampered) return finish(EXIT.FAILED, tampered);
       if (again.exit !== null) return finish(again.exit, again.reason);
       report = parseReport(again.finalMessage);
       if (!report.ok) return finish(EXIT.FAILED, `보고 불일치 정정 뒤 형식 위반: ${report.error}`);
@@ -266,6 +288,10 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
   if (exitCode === EXIT.STOPPED && state.protectedChanges.length > 0) {
     exitCode = EXIT.FAILED;
     reason = `보호 경로 변경: ${state.protectedChanges.join(", ")}`;
+  }
+  if (state.tempCleanup?.refused) {
+    exitCode = EXIT.ENVIRONMENT;
+    reason = `임시 폴더 정리 거부: ${state.tempCleanup.refused} (원래 결과: ${reason})`;
   }
   const finishedAt = deps.now();
   const mainTokens = sumTokens(state.turns.map((turn) => turn.tokens));

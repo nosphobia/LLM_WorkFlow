@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { emptyDir, listRootDirs, suspiciousNewDirs } from "../lib/temp-cleanup.mjs";
+import { emptyDir, emptyDirInside, listRootDirs, suspiciousNewDirs } from "../lib/temp-cleanup.mjs";
 
 test("폴더 안의 항목을 모두 지우고 이름을 돌려준다", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "temp-cleanup-test-"));
@@ -24,6 +24,28 @@ test("지우지 못한 항목은 이유와 함께 남긴다", () => {
     }
   };
   assert.deepEqual(emptyDir("X", fake), { removed: ["ok"], failed: ["locked: EPERM"] });
+});
+
+test("정리 루트나 상위 경로가 링크면 지우지 않고 거부 이유를 돌려준다", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "temp-cleanup-link-"));
+  const repo = path.join(root, "repo");
+  const outside = path.join(root, "outside");
+  fs.mkdirSync(path.join(repo, ".superpowers"), { recursive: true });
+  fs.mkdirSync(path.join(outside, "codex-tmp"), { recursive: true });
+  fs.writeFileSync(path.join(outside, "codex-tmp", "keep.txt"), "x");
+  fs.symlinkSync(outside, path.join(repo, ".superpowers", "sdd"), "junction");
+  const result = emptyDirInside(repo, path.join(repo, ".superpowers", "sdd", "codex-tmp"));
+  assert.deepEqual(result.removed, []);
+  assert.match(result.refused, /링크/);
+  assert.ok(fs.existsSync(path.join(outside, "codex-tmp", "keep.txt")));
+});
+
+test("경계 안의 실제 폴더는 평소처럼 비운다", () => {
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "temp-cleanup-inside-"));
+  const dir = path.join(repo, ".superpowers", "sdd", "codex-tmp");
+  fs.mkdirSync(path.join(dir, "tmpabc"), { recursive: true });
+  assert.deepEqual(emptyDirInside(repo, dir), { removed: ["tmpabc"], failed: [] });
+  assert.deepEqual(emptyDirInside(repo, path.join(repo, "missing")), { removed: [], failed: [] });
 });
 
 test("저장소 최상위 폴더 목록은 관리용 폴더와 파일을 뺀다", () => {

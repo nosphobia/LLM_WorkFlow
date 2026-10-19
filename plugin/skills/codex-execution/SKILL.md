@@ -38,9 +38,9 @@ Superpowers 6.4.1 `subagent-driven-development`의 진행 기록, 작업 지시 
 |---|---|---|
 | 0 | 완료, 보고된 파일이 커밋됨 | `next:`가 가리키는 검수로 간다 |
 | 2 | Codex가 NEEDS_CONTEXT 또는 BLOCKED를 보고함 | 아래 "Codex가 멈췄을 때" |
-| 3 | 호출 실패, 시간 초과, 형식·불일치 정정 실패, 보호 경로 변경, 프로젝트 Codex 설정 변경 | 아래 "멈출 때" |
+| 3 | 호출 실패, 시간 초과, 형식·불일치 정정 실패, 보호 경로 변경, 보호 파일 변경(git이 무시하는 파일 포함) | 아래 "멈출 때" |
 | 4 | 한도 부족(호출 전 확인) 또는 호출 중 한도 도달 | 아래 "멈출 때" |
-| 5 | 환경 점검 실패 (버전, 샌드박스 설정, 프로젝트 Codex 설정, 외부 연결 도구, 한도 기준값 없음) | 아래 "멈출 때" |
+| 5 | 환경 점검 실패 (버전, 샌드박스 설정, 프로젝트 Codex 설정, 외부 연결 도구, 한도 기준값 없음, 래퍼가 쓰거나 지우는 경로의 링크·경계 확인 실패) | 아래 "멈출 때" |
 
 - **커밋되지 않은 변경:** 새 대화(`start`)가 필요한데 커밋되지 않은 변경이 남아 있으면 래퍼가 시작을 거부한다(종료 코드 3). 이때는 변경을 버리거나 직접 커밋하지 않고 같은 대화를 이어간다(`--thread <ID>`, 추론 강도를 올려야 하면 `--effort xhigh`). 이 선택은 `Ruling:`으로 남긴다.
 - **시간 초과:** 종료 코드 3이고 이유에 "제한 시간"이 있으면 Codex가 띄운 명령이 아직 돌고 있을 수 있다. 멈추기 전에 `git status`와 `lateChanges`를 확인해 남은 변경 목록을 멈춤 줄에 적는다. 재개 조건은 '새 세션의 이어서 진행'이다. 같은 세션에서는 다시 부르지 않는다.
@@ -114,7 +114,9 @@ Superpowers 6.4.1 `subagent-driven-development`의 진행 기록, 작업 지시 
    - 조건이 풀렸으면 `codex-task ledger --text "재개: <시각>"`을 쓰고 멈춤 줄의 다음 명령으로 이어간다.
    - 시간 초과 멈춤이면 '이어서 진행'을 재개 승인으로 본다. `git status`를 멈춤 줄의 남은 변경 목록과 비교한다. 새로 바뀐 파일이 없고 보호 경로도 없으면 `재개:` 줄을 쓰고 같은 대화로 바로 이어간다. 남은 변경이 있으면 맥락 파일(수정 라운드면 지적 파일)에 '이전 차례가 남긴 변경: <목록>. 확인해서 이어 쓰고 CHANGED_FILES에 넣는다.'를 적는다. 멈춘 뒤 새로 바뀐 파일이 있거나(멈춘 명령이 아직 돌고 있다는 뜻) 보호 경로가 있으면 멈추고 사용자에게 묻는다.
 3. `Task <N>: complete` 줄이 있는 작업은 건너뛴다. 마지막 줄이 수정 라운드인 작업은 그 루프를 이어간다. 대화 ID는 `Task <N>: codex thread` 줄에서 찾는다.
-4. `Final review:` 줄이 있으면 최종 검수를 다시 하지 않는다. `Final fix:`, `Final re-review:`, `Usage log:`, `Broker:` 줄을 보고 마무리의 다음 단계부터 한다.
+4. 마무리 줄(`Master test:`, `Final review:`, `Final fix:`, `Final re-review:`, `Usage log:`, `Broker:`)을 보고 마무리의 다음 단계부터 한다. 줄이 있는지만 보지 않고 결과와 target을 함께 본다.
+   - `Final review:` 줄이 있으면 최종 검수를 다시 하지 않는다. `Final review: 수정 필요`인데 `Final fix:` 줄이 없으면 최종 수정부터 한다.
+   - 최종 수정으로 HEAD가 바뀌었는데 지금 HEAD를 target으로 한 `Master test:` 줄이 없으면 수정 뒤 마스터 테스트부터 한다.
 
 ## 작업마다
 
@@ -165,13 +167,14 @@ Codex 작업은 한 번에 하나만 돌린다.
 
 ## 마무리
 
-1. **마스터의 테스트:** 마스터가 계획 Global Constraints의 전체 테스트 명령을 제한 시간을 두고 직접 돌린다(보정 모듈 없이, Codex 샌드박스 밖). 이 결과가 최종 판단 기준이다. 실패하면 최종 검수 지적에 넣고, 결과(명령, 통과/실패 수)를 최종 보고에 적는다.
-2. **최종 검수:** `codex-task review --kind final --base $(git merge-base main HEAD)`를 돌리고, 출력대로 `opus` 서브에이전트를 보낸다. 끝나면 `codex-task ledger --text "Final review: <결과> — findings <파일 또는 none>"`.
+1. **마스터의 테스트:** 마스터가 계획 Global Constraints의 전체 테스트 명령을 제한 시간을 두고 직접 돌린다(보정 모듈 없이, Codex 샌드박스 밖). 이 결과가 최종 판단 기준이다. 끝나면 `codex-task ledger --text "Master test: <통과 수>/<전체 수> 통과 — target <HEAD 7자리>"`. 실패하면 최종 검수 지적에 넣고, 결과(명령, 통과/실패 수)를 최종 보고에 적는다.
+2. **최종 검수:** `codex-task review --kind final --base $(git merge-base main HEAD)`를 돌리고, 출력대로 `opus` 서브에이전트를 보낸다. 끝나면 `codex-task ledger --text "Final review: <승인 | 수정 필요> — target <HEAD 7자리> — findings <파일 또는 none>"`.
 3. **최종 수정 (지적이 있을 때, 한 번만):**
    - 지적을 `final-fix-findings.md`에 저장한다.
    - `codex-task run --role final-fix --findings <final-fix-findings.md> --diff <2번 출력의 package= 파일>`을 돌린다.
    - 재검수를 한 번만 한다: `codex-task review --kind rereview --task final --base <수정 전 HEAD> --findings <final-fix-findings.md>`, 모델은 `sonnet`.
-   - 끝나면 `codex-task ledger --text "Final re-review: <결과>"`. 남은 지적은 판정해서 기록한다. 두 번째 수정은 없다.
+   - 끝나면 `codex-task ledger --text "Final re-review: <결과> — target <HEAD 7자리>"`. 남은 지적은 판정해서 기록한다. 두 번째 수정은 없다.
+   - 최종 수정으로 HEAD가 바뀌었으면 수정 뒤 HEAD에서 1번의 마스터 테스트를 다시 돌린다. Codex의 테스트 결과로 대신하지 않는다. 같은 형식의 `Master test:` 줄을 쓴다. 실패하면 남은 지적으로 판정해 기록하고, 최종 보고에는 이 수정 뒤 결과를 적는다.
 4. **최종 보고:** 첫 줄은 `[배포 · 확인 필요]`이고, 핵심 세 줄과 `docs/reports/` 아래 보고 파일 경로를 쓴다. 보고 파일에 넣을 것:
    - "내가 내린 판정": `planning.md`와 `progress.md`의 `Ruling:` 줄 전부를 순서대로, 틀렸을 때 비용과 함께
    - "사람 확인" 체크 목록: `사람 확인:` 줄과 경고 줄(`progress.md`의 `네트워크 경고:`, `위험 명령 경고:`, `하위 에이전트 경고:`, `래퍼 경고:`, 그리고 `planning.md`의 `경고:` 줄)

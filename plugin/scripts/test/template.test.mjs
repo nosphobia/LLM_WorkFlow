@@ -32,3 +32,12 @@ test("템플릿 규칙은 메시지, 명세, 이어서 진행, 권한 규칙을 
   }
   assert.doesNotMatch(claude, /권한 문제로 막히면 우회하지 말고 멈춘 뒤 사용자에게 알린다/);
 });
+
+test("템플릿 규칙은 명세 승인 뒤 계획과 실행을 우리 스킬로 보낸다", () => {
+  const claude = read("CLAUDE.md");
+  assert.ok(
+    claude.includes(
+      "명세가 승인되면 계획은 `llm-workflow:codex-planning`, 실행은 `llm-workflow:codex-execution`으로 한다. `superpowers:writing-plans`와 `superpowers:subagent-driven-development`는 쓰지 않는다."
+    )
+  );
+});

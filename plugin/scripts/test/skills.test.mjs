@@ -82,6 +82,26 @@ test("실행 스킬은 작업 스크립트, 한도 확인, 멈춤과 재개, 사
   }
 });
 
+test("실행 스킬은 최종 수정 뒤 HEAD에서 마스터 테스트를 다시 돌리고, 재개 기록에 결과와 대상 커밋을 남긴다", () => {
+  const skill = read("codex-execution", "SKILL.md");
+  const finish = skill.slice(skill.indexOf("## 마무리"), skill.indexOf("## 하지 않는 것"));
+  for (const phrase of [
+    "Master test: <통과 수>/<전체 수> 통과 — target <HEAD 7자리>",
+    "Final review: <승인 | 수정 필요> — target <HEAD 7자리>",
+    "Final re-review: <결과> — target <HEAD 7자리>",
+    "수정 뒤 HEAD에서 1번의 마스터 테스트를 다시 돌린다"
+  ]) {
+    assert.ok(finish.includes(phrase), phrase);
+  }
+  // 수정 뒤 마스터 테스트는 재검수 뒤, 최종 보고 전에 온다.
+  assert.ok(finish.indexOf("수정 뒤 HEAD에서 1번의 마스터 테스트") > finish.indexOf("Final re-review:"));
+  assert.ok(finish.indexOf("수정 뒤 HEAD에서 1번의 마스터 테스트") < finish.indexOf("**최종 보고:**"));
+  const resume = skill.slice(skill.indexOf("## 이어서 진행"), skill.indexOf("## 작업마다"));
+  for (const phrase of ["결과와 target", "`Final review: 수정 필요`인데 `Final fix:` 줄이 없으면", "지금 HEAD를 target으로 한 `Master test:` 줄이 없으면"]) {
+    assert.ok(resume.includes(phrase), phrase);
+  }
+});
+
 test("계획 스킬은 한도 확인, 계획 검토 요청 줄, 멈춤과 재개 규칙을 담는다", () => {
   const skill = read("codex-planning", "SKILL.md");
   for (const phrase of ["limits --cwd <저장소> --phase plan", "계획 검토: 요청", "멈춤:", "이어서 진행", "Plan: committed", "Plan review:", "[기획 · 큰 문제]", "묻지 않고 작업 브랜치", "측정: 예", "재개 승인", "짧은 진행 알림도", "<진행 기록 폴더>/reports/"]) {

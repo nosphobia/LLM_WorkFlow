@@ -49,8 +49,8 @@ function setup({ replies = [DONE()], changed = [[], ["greet.py", "tests/test_gre
     appendLine: (file, value) => calls.lines.push({ file, value }),
     writeJson: (file, value) => calls.json.push({ file, value }),
     settings: { protectedPaths: [".claude/", ".githooks/", "CLAUDE.md", ".codex/"] },
-    prepareProjectConfig: async () => ({ hash: "h1", warnings: [], problems: [] }),
-    projectConfigHash: () => "h1",
+    prepareProjectConfig: async () => ({ warnings: [], problems: [] }),
+    snapshotProtected: () => ({ ".codex/config.toml": "file:h1" }),
     checkAppsTools: async () => ({ problems: [], toolCount: 0 }),
     checkLimits: async () => ({ status: "ok", reason: "한도 충분" }),
     listRootDirs: () => [],
@@ -459,22 +459,78 @@ test("한도를 확인하지 못하면 Codex를 부르지 않고 5", async () =>
 });
 
 test("프로젝트 Codex 설정에 문제가 있으면 5, 준비 중 경고는 결과에 남긴다", async () => {
-  const bad = setup({ deps: { prepareProjectConfig: async () => ({ hash: "h1", warnings: [], problems: ["외부 연결 도구(features.apps)가 꺼져 있지 않습니다"] }) } });
+  const bad = setup({ deps: { prepareProjectConfig: async () => ({ warnings: [], problems: ["외부 연결 도구(features.apps)가 꺼져 있지 않습니다"] }) } });
   const failed = await bad.run();
   assert.equal(failed.exitCode, EXIT.ENVIRONMENT);
   assert.equal(bad.calls.runTurn.length, 0);
-  const warned = setup({ deps: { prepareProjectConfig: async () => ({ hash: "h1", warnings: ["프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)"], problems: [] }) } });
+  const warned = setup({ deps: { prepareProjectConfig: async () => ({ warnings: ["프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)"], problems: [] }) } });
   const ok = await warned.run();
   assert.equal(ok.exitCode, EXIT.OK);
   assert.ok(ok.result.warnings.includes("프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)"));
 });
 
-test("호출 뒤 프로젝트 Codex 설정이 바뀌었으면 커밋하지 않고 3", async () => {
-  const { run, calls } = setup({ deps: { projectConfigHash: () => "changed" } });
+test("호출 뒤 git이 무시하는 보호 파일이 바뀌었으면 커밋하지 않고 3", async () => {
+  const snapshots = [
+    { ".codex/config.toml": "file:h1", ".claude": "dir" },
+    { ".codex/config.toml": "file:h2", ".claude": "dir", ".claude/settings.local.json": "file:x" }
+  ];
+  const { run, calls } = setup({ deps: { snapshotProtected: () => (snapshots.length > 1 ? snapshots.shift() : snapshots[0]) } });
   const { exitCode, result } = await run();
   assert.equal(exitCode, EXIT.FAILED);
-  assert.equal(result.reason, "보호 파일 변경: .codex/config.toml");
+  assert.equal(result.reason, "보호 파일 변경: .claude/settings.local.json, .codex/config.toml");
+  assert.deepEqual(result.protectedChanges, [".claude/settings.local.json", ".codex/config.toml"]);
   assert.equal(calls.commit.length, 0);
+});
+
+test("호출 뒤 보호 경로를 읽지 못하면 커밋하지 않고 3", async () => {
+  let count = 0;
+  const snapshotProtected = () => {
+    count += 1;
+    if (count > 1) throw new Error("denied");
+    return {};
+  };
+  const { run, calls } = setup({ deps: { snapshotProtected } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.equal(result.reason, "보호 파일 확인 실패: denied");
+  assert.equal(calls.commit.length, 0);
+});
+
+test("호출 전에 보호 경로를 읽지 못하면 Codex를 부르지 않고 5", async () => {
+  const { run, calls } = setup({
+    deps: {
+      snapshotProtected: () => {
+        throw new Error("EACCES .claude/settings.local.json");
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.ENVIRONMENT);
+  assert.equal(result.reason, "보호 경로를 읽지 못했습니다: EACCES .claude/settings.local.json");
+  assert.equal(calls.runTurn.length, 0);
+});
+
+test("작업 폴더 경로 확인에 실패하면 Codex를 부르지 않고 5", async () => {
+  const { run, calls } = setup({
+    deps: {
+      ensureWorkspace: () => {
+        throw new Error("D:/repo/.superpowers: 링크입니다");
+      }
+    }
+  });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.ENVIRONMENT);
+  assert.match(result.reason, /^작업 폴더를 준비하지 못했습니다: .*링크입니다$/);
+  assert.equal(calls.runTurn.length, 0);
+});
+
+test("임시 폴더 정리를 경로 확인 실패로 거부했으면 원래 결과를 남기고 5", async () => {
+  const { run, calls } = setup({ deps: { cleanupCodexTmp: () => ({ removed: [], failed: [], refused: "D:/repo/.superpowers/sdd: 링크입니다" }) } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.ENVIRONMENT);
+  assert.equal(result.reason, "임시 폴더 정리 거부: D:/repo/.superpowers/sdd: 링크입니다 (원래 결과: Codex 보고: DONE)");
+  assert.equal(calls.commit.length, 1);
+  assert.equal(calls.json[0].value.exitCode, EXIT.ENVIRONMENT);
 });
 
 test("보호 경로를 바꿨으면 보고했든 안 했든 커밋하지 않고 3", async () => {
@@ -611,7 +667,7 @@ test("check는 외부 연결 도구가 켜져 있으면 5, 꺼져 있으면 개�
 });
 
 test("check는 경고를 요약 줄 뒤에 한 줄씩 보여 준다", async () => {
-  const { run } = setup({ options: { action: "check" }, deps: { prepareProjectConfig: async () => ({ hash: "h1", warnings: ["설정 경고 하나"], problems: [] }) } });
+  const { run } = setup({ options: { action: "check" }, deps: { prepareProjectConfig: async () => ({ warnings: ["설정 경고 하나"], problems: [] }) } });
   const { summaryLine } = await run();
   const lines = summaryLine.split("\n");
   assert.match(lines[0], /^codex-run exit=0 /);

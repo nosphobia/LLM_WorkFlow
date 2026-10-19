@@ -24,6 +24,10 @@
 - 사용자가 계획 검토를 원하면 명세 머리말에 `계획 검토: 요청` 줄을 넣는다. 이 줄이 없으면 계획은 검수만 거쳐 바로 실행으로 넘어간다.
 - 측정 시험이면 명세 머리말에 `측정: 예` 줄을 넣는다. 이 줄이 없으면 Claude 사용률을 묻지 않는다.
 
+## 계획과 실행
+
+- 명세가 승인되면 계획은 `llm-workflow:codex-planning`, 실행은 `llm-workflow:codex-execution`으로 한다. `superpowers:writing-plans`와 `superpowers:subagent-driven-development`는 쓰지 않는다.
+
 ## 이어서 진행
 
 - 사용자가 새 세션에서 "이어서 진행"이라고 하면 `.superpowers/sdd/` 아래 진행 기록을 찾는다. `progress.md`가 있으면 `llm-workflow:codex-execution`의 "이어서 진행"을, 없으면 `planning.md`를 보고 `llm-workflow:codex-planning`의 "이어서 진행"을 따른다.

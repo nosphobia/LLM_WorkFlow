@@ -2,6 +2,7 @@
 // Python 3.13의 mkdtemp 폴더는 샌드박스 안에서는 못 지우지만 소유자인 사용자는 지울 수 있다(명세 2.4절).
 import fs from "node:fs";
 import path from "node:path";
+import { checkSafePath } from "./safe-path.mjs";
 
 export function emptyDir(dir, fsx = fs) {
   const result = { removed: [], failed: [] };
@@ -22,6 +23,13 @@ export function emptyDir(dir, fsx = fs) {
     }
   }
   return result;
+}
+
+// 정리 루트나 그 위가 링크면 링크 대상의 항목을 지우게 된다(검토 2 S1). 확인에 실패하면 지우지 않고 이유를 돌려준다.
+export function emptyDirInside(boundary, dir, fsx = fs) {
+  const safe = checkSafePath(boundary, dir, fsx);
+  if (!safe.ok) return { removed: [], failed: [], refused: safe.reason };
+  return emptyDir(dir, fsx);
 }
 
 const MANAGED = new Set([".git", ".superpowers", ".codex"]);

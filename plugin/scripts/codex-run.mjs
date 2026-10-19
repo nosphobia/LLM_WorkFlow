@@ -14,8 +14,10 @@ import { runWrapper } from "./lib/run.mjs";
 import { shutdownBroker, isProcessAlive } from "./lib/broker.mjs";
 import { parseSettings } from "./lib/settings.mjs";
 import { evaluateLimits, formatLimitLines } from "./lib/limits.mjs";
-import { PROJECT_CONFIG_REL, buildProjectConfig, checkEffectiveConfig, codexTmpDir, findAppsTools, hashText } from "./lib/project-config.mjs";
-import { emptyDir, listRootDirs } from "./lib/temp-cleanup.mjs";
+import { PROJECT_CONFIG_REL, buildProjectConfig, checkEffectiveConfig, codexTmpDir, findAppsTools } from "./lib/project-config.mjs";
+import { emptyDirInside, listRootDirs } from "./lib/temp-cleanup.mjs";
+import { assertSafePath, readExisting } from "./lib/safe-path.mjs";
+import { snapshotProtected } from "./lib/protected.mjs";
 import { findSubagents } from "./lib/subagents.mjs";
 import { findWorkflowTrustEntries, formatTrustReport } from "./lib/trust.mjs";
 
@@ -150,15 +152,25 @@ function isIgnored(cwd, rel) {
 }
 
 // .codex/가 git 무시 대상이 아니면 저장소별 무시 목록(.git/info/exclude)에 더한다. 추적 파일은 바꾸지 않는다.
+// exclude는 git 공용 폴더 안의 실제 경로여야 한다. 읽기 실패를 빈 파일로 보고 덮어쓰지 않는다(검토 2 S2).
 function ensureCodexIgnored() {
   if (isIgnored(options.cwd, ".codex/config.toml")) return null;
-  const rel = execFileSync("git", ["-C", options.cwd, "rev-parse", "--git-path", "info/exclude"], { encoding: "utf8" }).trim();
-  const exclude = path.resolve(options.cwd, rel);
-  const current = readText(exclude) ?? "";
+  const gitOut = (args) => execFileSync("git", ["-C", options.cwd, "rev-parse", ...args], { encoding: "utf8" }).trim();
+  const exclude = path.resolve(options.cwd, gitOut(["--git-path", "info/exclude"]));
+  assertSafePath(path.resolve(options.cwd, gitOut(["--git-common-dir"])), exclude);
+  const current = readExisting(exclude) ?? "";
   if (current.split(/\r?\n/).some((line) => line.trim() === ".codex/")) return null;
   fs.mkdirSync(path.dirname(exclude), { recursive: true });
   fs.writeFileSync(exclude, `${current}${current && !current.endsWith("\n") ? "\n" : ""}.codex/\n`);
   return "`.codex/`가 git 무시 목록에 없어 .git/info/exclude에 더했습니다";
+}
+
+// 진행 기록 폴더의 .gitignore("*")를 없을 때만 쓴다. 저장소 안의 실제 경로인지 먼저 확인한다.
+function ensureSddIgnore() {
+  const sddIgnore = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
+  const { exists } = assertSafePath(options.cwd, sddIgnore);
+  fs.mkdirSync(path.dirname(sddIgnore), { recursive: true });
+  if (!exists) fs.writeFileSync(sddIgnore, "*\n");
 }
 
 async function prepareProjectConfig() {
@@ -168,17 +180,17 @@ async function prepareProjectConfig() {
   try {
     const ignoreNote = ensureCodexIgnored();
     if (ignoreNote) warnings.push(ignoreNote);
-    const sddIgnore = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
-    fs.mkdirSync(path.dirname(sddIgnore), { recursive: true });
-    if (!fs.existsSync(sddIgnore)) fs.writeFileSync(sddIgnore, "*\n");
+    ensureSddIgnore();
+    assertSafePath(options.cwd, codexTmpDir(options.cwd));
     fs.mkdirSync(codexTmpDir(options.cwd), { recursive: true });
-    const before = readText(configFile);
+    assertSafePath(options.cwd, configFile);
+    const before = readExisting(configFile);
     if (before !== null && before !== text) warnings.push("프로젝트 Codex 설정을 다시 썼습니다(이전 내용과 달랐음)");
     fs.mkdirSync(path.dirname(configFile), { recursive: true });
     fs.writeFileSync(configFile, text);
   } catch (error) {
     problems.push(`프로젝트 Codex 설정을 준비하지 못했습니다: ${error.message}`);
-    return { hash: hashText(text), warnings, problems };
+    return { warnings, problems };
   }
   try {
     const checked = await withDirectClient(options.cwd, async (client) => {
@@ -195,7 +207,7 @@ async function prepareProjectConfig() {
   } catch (error) {
     problems.push(`프로젝트 Codex 설정을 확인하지 못했습니다: ${error.message}`);
   }
-  return { hash: hashText(text), warnings, problems };
+  return { warnings, problems };
 }
 
 async function checkAppsTools() {
@@ -235,19 +247,19 @@ const deps = {
       codexPluginList: () => execSync("codex plugin list", { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: 64 * 1024 * 1024, timeout: 120_000 })
     }),
   prepareProjectConfig,
-  projectConfigHash: () => hashText(readText(configFile) ?? ""),
+  snapshotProtected: (cwd) => snapshotProtected(cwd, settings.protectedPaths),
   checkAppsTools,
   checkLimits,
   ensureWorkspace: (dir) => {
+    assertSafePath(options.cwd, dir);
     fs.mkdirSync(dir, { recursive: true });
-    const ignoreFile = path.join(options.cwd, ".superpowers", "sdd", ".gitignore");
-    if (!fs.existsSync(ignoreFile)) fs.writeFileSync(ignoreFile, "*\n");
+    ensureSddIgnore();
   },
   listChangedFiles,
   commitFiles,
   listRootDirs: (cwd) => listRootDirs(cwd),
   isIgnored: (cwd, rel) => isIgnored(cwd, rel),
-  cleanupCodexTmp: () => emptyDir(codexTmpDir(options.cwd)),
+  cleanupCodexTmp: () => emptyDirInside(options.cwd, codexTmpDir(options.cwd)),
   readSubagents: (threadId, sinceMs) => findSubagents(paths.codexSessions, threadId, sinceMs),
   snapshotRepo: (cwd) =>
     buildSnapshot(listChangedFiles(cwd), (file) => {
