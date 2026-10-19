@@ -21,13 +21,23 @@ test("실제 설정 파일을 읽을 수 있고 보호 경로와 두 요금제 �
   assert.deepEqual(parsed.settings.limits.plus["300"], { plan: 50, executeBase: 0, executePerTask: 18, call: 30 });
   assert.deepEqual(parsed.settings.limits.plus["10080"], { plan: 10, executeBase: 7, executePerTask: 3, call: 5 });
   assert.deepEqual(parsed.settings.limits.prolite["10080"], { plan: 5, executeBase: 5, executePerTask: 2, call: 5 });
+  assert.deepEqual(parsed.settings.codex, { model: "gpt-5.6-sol", reasoningEffort: "ultra" });
+});
+
+test("Codex 모델과 추론 강도가 없거나 쓸 수 없는 값이면 거부한다", () => {
+  const base = { protectedPaths: ["x"], limits: {} };
+  assert.match(parseSettings(JSON.stringify(base)).error, /codex\.model/);
+  assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "", reasoningEffort: "ultra" } })).error, /codex\.model/);
+  assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "gpt-5.6-sol" } })).error, /codex\.reasoningEffort/);
+  assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "it's", reasoningEffort: "ultra" } })).error, /codex\.model/);
+  assert.equal(parseSettings(JSON.stringify({ ...base, codex: { model: "gpt-5.6-sol", reasoningEffort: "ultra" } })).ok, true);
 });
 
 test("형식이 틀린 설정은 이유와 함께 거부한다", () => {
   assert.match(parseSettings("{").error, /해석할 수 없습니다/);
   assert.match(parseSettings(JSON.stringify({ limits: {} })).error, /protectedPaths/);
   assert.match(parseSettings(JSON.stringify({ protectedPaths: ["x"] })).error, /limits/);
-  const bad = { protectedPaths: ["x"], limits: { plus: { 300: { plan: 1, executeBase: 0, executePerTask: -1, call: 1 } } } };
+  const bad = { protectedPaths: ["x"], limits: { plus: { 300: { plan: 1, executeBase: 0, executePerTask: -1, call: 1 } } }, codex: { model: "m", reasoningEffort: "e" } };
   assert.match(parseSettings(JSON.stringify(bad)).error, /limits\.plus\.300\.executePerTask/);
 });
 

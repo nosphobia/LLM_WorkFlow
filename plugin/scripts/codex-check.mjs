@@ -6,8 +6,10 @@ import os from "node:os";
 import path from "node:path";
 import { execFileSync, execSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import { PINS, EXIT, USAGE_FILE, pluginPaths } from "./lib/pins.mjs";
-import { evaluateBoundary, trailerModel } from "./lib/check-eval.mjs";
+import { PINS, EXIT, USAGE_FILE, pluginPaths, defaultPaths } from "./lib/pins.mjs";
+import { evaluateBoundary, evaluatePinnedTurns, trailerModel } from "./lib/check-eval.mjs";
+import { findRolloutFile } from "./lib/rollout.mjs";
+import { parseSettings } from "./lib/settings.mjs";
 import { codexTmpDir } from "./lib/project-config.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -18,7 +20,7 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), "llm-workflow-check-"));
 const repo = path.join(root, "repo");
 const workspace = path.join(repo, ".superpowers", "sdd", "check");
 const results = [];
-const ITEM_COUNT = 14;
+const ITEM_COUNT = 15;
 
 const REPORT_RULES = [
   "End your final message with exactly these five lines:",
@@ -253,6 +255,16 @@ function runCodexItems() {
     impl.exitCode === EXIT.OK && filesOk && model !== null && model !== "unknown-model",
     `exit=${impl.exitCode} 커밋 파일=${committed.join(", ") || "-"} 모델=${model ?? "-"} ${impl.result?.reason ?? impl.stderr}`
   );
+
+  // 15번: 래퍼가 프로젝트 Codex 설정으로 고정한 모델·추론 강도와 메모리 끄기가 실제 차례에 적용됐는지 세션 기록으로 본다.
+  const pinned = parseSettings(fs.readFileSync(pluginPaths().settingsFile, "utf8"));
+  const rolloutFile = impl.result?.threadId ? findRolloutFile(defaultPaths().codexSessions, impl.result.threadId) : null;
+  if (!pinned.ok) record("15. 모델·메모리 고정", false, pinned.error);
+  else if (!rolloutFile) record("15. 모델·메모리 고정", false, `2번 대화의 세션 기록을 찾지 못함: ${impl.result?.threadId ?? "-"}`);
+  else {
+    const verdict = evaluatePinnedTurns(fs.readFileSync(rolloutFile, "utf8"), { model: pinned.settings.codex.model, effort: pinned.settings.codex.reasoningEffort });
+    record("15. 모델·메모리 고정", verdict.pass, verdict.detail);
+  }
 
   const subject = impl.result?.commit ? git("log", "-1", "--format=%s") : "";
   const unittest = spawnSync("python", ["-m", "unittest", "-q"], { cwd: repo, encoding: "utf8", timeout: 2 * 60_000 });

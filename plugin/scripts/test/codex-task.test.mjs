@@ -27,10 +27,10 @@ const PLAN = [
   "- [ ] **Step 1: write greet.txt**"
 ].join("\n");
 
-function makeRepo() {
+function makeRepo(plan = PLAN) {
   const repo = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "codex-task-test-")), "repo");
   fs.mkdirSync(path.join(repo, "docs"), { recursive: true });
-  fs.writeFileSync(path.join(repo, "docs", "plan.md"), `${PLAN}\n`);
+  fs.writeFileSync(path.join(repo, "docs", "plan.md"), `${plan}\n`);
   fs.writeFileSync(path.join(repo, "docs", "spec.md"), "# spec\n");
   const git = (...args) => execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
   git("init", "-q", "-b", "main");
@@ -42,6 +42,24 @@ function makeRepo() {
 }
 
 const runTask = (repo, args) => spawnSync(process.execPath, [script, ...args, "--cwd", repo, "--plan", "docs/plan.md"], { cwd: repo, encoding: "utf8", timeout: 120_000 });
+
+test("계획 머리말의 명세 줄을 읽지 못하거나 명세 파일이 없으면 none으로 넘기지 않고 3", { skip }, () => {
+  const korean = makeRepo(PLAN.replace("**Spec:**", "**명세:**"));
+  const run = runTask(korean.repo, ["run", "--role", "implement", "--task", "1", "--dry-run"]);
+  assert.equal(run.status, 3);
+  assert.match(run.stderr, /계획 머리말에 `\*\*Spec:\*\* `/);
+  assert.equal(fs.existsSync(path.join(korean.repo, ".superpowers", "sdd")), false);
+  const review = runTask(korean.repo, ["review", "--kind", "final", "--base", "HEAD"]);
+  assert.equal(review.status, 3);
+  assert.match(review.stderr, /\*\*Spec:\*\*/);
+  const ledger = runTask(korean.repo, ["ledger", "--text", "멈춤: 명세 줄 없음"]);
+  assert.equal(ledger.status, 0);
+
+  const missing = makeRepo(PLAN.replace("docs/spec.md", "docs/gone.md"));
+  const gone = runTask(missing.repo, ["run", "--role", "implement", "--task", "1", "--dry-run"]);
+  assert.equal(gone.status, 3);
+  assert.match(gone.stderr, /명세 파일이 없습니다: docs\/gone\.md/);
+});
 
 test("인자가 틀리면 3", { skip }, () => {
   const { repo } = makeRepo();

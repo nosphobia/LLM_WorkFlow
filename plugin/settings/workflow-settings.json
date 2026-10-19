@@ -1,5 +1,6 @@
 {
   "protectedPaths": [".claude/", ".githooks/", "CLAUDE.md", ".codex/"],
+  "codex": { "model": "gpt-5.6-sol", "reasoningEffort": "ultra" },
   "limits": {
     "plus": {
       "300": { "plan": 50, "executeBase": 0, "executePerTask": 18, "call": 30 },

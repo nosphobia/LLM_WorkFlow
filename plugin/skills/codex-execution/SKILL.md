@@ -191,7 +191,7 @@ Codex 작업은 한 번에 하나만 돌린다.
 7. **브로커 닫기:** Codex 작업이 모두 끝난 뒤 Codex 브로커를 닫는다: `node <래퍼> shutdown --cwd <저장소>`. 브로커는 저장소마다 하나씩 떠서 래퍼 호출이 재사용하고, 닫으면 그 저장소의 Codex 앱 서버도 함께 닫힌다.
    - 종료 코드 0: 닫았거나 닫을 브로커가 없다. `codex-task ledger --text "Broker: closed"`.
    - 종료 코드 3: 브로커가 끝나지 않았거나 종료를 확인하지 못했다. 다시 시도하거나 프로세스를 끝내지 말고, 출력의 PID와 함께 사용자에게 보고한다.
-8. 이후 QA, 위키, 병합은 프로젝트 규칙을 따른다. 병합 방식 선택은 `superpowers:finishing-a-development-branch`를 쓴다.
+8. 이후 QA, 위키, 병합은 프로젝트 규칙을 따른다. 병합 방식 선택은 `superpowers:finishing-a-development-branch`를 쓴다. main 병합은 사용자 승인 뒤 로컬로 한다. push와 PR은 하지 않는다. push는 사용자가 직접 한다.
 
 ## 하지 않는 것
 

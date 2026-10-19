@@ -140,7 +140,7 @@ if (options.action === "trust-report") {
 
 const settings = requireSettings("codex-run");
 const configFile = path.join(options.cwd, PROJECT_CONFIG_REL);
-const expectedConfig = { repoDir: options.cwd, shimDir: plugin.shimDir };
+const expectedConfig = { repoDir: options.cwd, shimDir: plugin.shimDir, model: settings.codex.model, effort: settings.codex.reasoningEffort };
 
 function isIgnored(cwd, rel) {
   try {

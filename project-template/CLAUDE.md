@@ -27,6 +27,7 @@
 ## 계획과 실행
 
 - 명세가 승인되면 계획은 `llm-workflow:codex-planning`, 실행은 `llm-workflow:codex-execution`으로 한다. `superpowers:writing-plans`와 `superpowers:subagent-driven-development`는 쓰지 않는다.
+- 작업 규모와 관계없이 계획과 코드는 Codex가 쓰고, Claude는 검수만 한다.
 
 ## 이어서 진행
 
@@ -40,7 +41,7 @@
 - 실제 비밀 정보는 프로젝트 폴더 안에 두지 않는다.
 - 권한 문제로 막히면 우회하지 않는다. 그 일 없이 판정할 수 있으면 판정과 이유를 기록하고, 배포 때 "사람 확인" 항목으로 넘긴다. 그 일 없이는 진행할 수 없을 때만 멈추고 사용자에게 알린다.
 - 테스트와 오래 걸리는 명령에는 제한 시간을 둔다. 프로세스를 끝내야 할 때는 자기가 띄운 프로세스의 번호(PID)로만 끝내고, 프로그램 이름으로 한꺼번에 끝내지 않는다. 그래도 안 되면 멈추고 사용자에게 보고한다.
-- push와 merge는 사용자 승인을 받은 뒤에만 한다.
+- main 병합은 사용자 승인 뒤 AI가 로컬로 한다. push는 사용자가 직접 한다.
 - 저장소를 새로 만들면 `git config core.hooksPath .githooks`를 한 번 실행해 main push 차단 훅을 켠다.
 - `.codex/`는 llm-workflow 래퍼가 관리하는 Codex 설정 폴더다. 직접 고치지 않는다.
 

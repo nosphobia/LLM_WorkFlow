@@ -79,6 +79,13 @@ if (!fs.existsSync(planFile)) fail(`계획 파일이 없습니다: ${planFile}`)
 const planText = fs.readFileSync(planFile, "utf8");
 const rel = (file) => toRepoRelative(repo, file);
 const planRel = rel(planFile);
+// 명세 경로를 읽지 못했을 때 "none"을 넘기면 Codex와 검수자가 명세 없이 일한다(2026-10-20 재측정). 그때는 멈춘다.
+// 기록 줄(ledger)은 멈춤을 남길 수 있어야 하므로 막지 않는다.
+const specPath = planSpecPath(planText);
+if (command !== "ledger") {
+  if (!specPath) fail(`계획 머리말에 \`**Spec:** \`<명세 경로>\`\` 줄이 없습니다: ${planRel}`);
+  if (!fs.existsSync(path.resolve(repo, specPath))) fail(`계획 머리말의 명세 파일이 없습니다: ${specPath}`);
+}
 const sp = path.join(defaultPaths().superpowersRoot, "skills");
 const execution = path.join(PLUGIN_ROOT, "skills", "codex-execution");
 const git = (...gitArgs) => execFileSync("git", ["-C", repo, ...gitArgs], { encoding: "utf8" }).trim();
@@ -189,7 +196,7 @@ if (command === "review") {
       DESCRIPTION: `Final whole-branch review of the implementation of ${planRel}`,
       PLAN_OR_REQUIREMENTS: [
         `Plan: ${planRel}`,
-        `Spec: ${planSpecPath(planText) ?? "none"}`,
+        `Spec: ${specPath}`,
         `Deferred and parked findings to weigh before merge: the lines containing "minor (deferred)" or "parked" in ${inWorkspace("progress.md")}`
       ].join("\n"),
       BASE_SHA: args.base,
@@ -225,7 +232,7 @@ const values = {
   TASK_NUMBER: task ?? "",
   TASK_NAME: (task && planTaskName(planText, task)) ?? "",
   BRIEF_PATH: brief ? rel(brief) : "",
-  SPEC_PATH: planSpecPath(planText) ?? "none",
+  SPEC_PATH: specPath,
   PLAN_PATH: planRel,
   CONTEXT: args.context ? fs.readFileSync(path.resolve(repo, args.context), "utf8").trim() : "none",
   GLOBAL_CONSTRAINTS: planSection(planText, "Global Constraints") ?? "none",

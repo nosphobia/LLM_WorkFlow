@@ -7,6 +7,7 @@ You are writing an implementation plan in the git repository at the current work
 ## How to write the plan
 1. Use your superpowers:writing-plans skill and follow it, with these overrides:
    - The header line "For agentic workers" must read: REQUIRED SUB-SKILL: Use llm-workflow:codex-execution to implement this plan task-by-task. Do not name superpowers:subagent-driven-development or superpowers:executing-plans anywhere in the plan.
+   - The header must contain this line exactly, with the label in English even though the prose is Korean: **Spec:** `{{SPEC_PATH}}`. The workflow reads the spec path from this line and stops if it is missing.
    - Skip the skill's "Execution Handoff" section. Do not ask which execution approach to use.
    - Keep each task's commit step and its commit message, but write it as "Report this commit message; the workflow wrapper commits." Implementers never run git commit.
 2. Write the plan's prose in Korean. Keep code, commands, file paths, and identifiers as they are.

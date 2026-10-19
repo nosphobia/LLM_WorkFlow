@@ -23,6 +23,13 @@ export function parseSettings(text) {
       }
     }
   }
+  // 래퍼가 프로젝트 Codex 설정에 TOML 리터럴 문자열로 쓰므로 작은따옴표와 줄바꿈은 받지 않는다.
+  for (const key of ["model", "reasoningEffort"]) {
+    const value = data.codex?.[key];
+    if (typeof value !== "string" || value.trim() === "" || /['\r\n]/.test(value)) {
+      return { ok: false, error: `설정 파일의 codex.${key}가 비어 있지 않은 문자열이 아니거나 쓸 수 없는 문자가 있습니다` };
+    }
+  }
   return { ok: true, settings: data };
 }
 

@@ -4,6 +4,34 @@ export function trailerModel(commitMessage) {
   return match ? match[1] : null;
 }
 
+// 세션 기록(rollout)에서 모든 차례의 모델·추론 강도와, 개발자 지시에 메모리 안내("## Memory" 절)가 들어갔는지 본다.
+export function evaluatePinnedTurns(rolloutText, { model, effort }) {
+  const turns = [];
+  let memory = false;
+  for (const raw of String(rolloutText ?? "").split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    let event;
+    try {
+      event = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    const payload = event.payload ?? {};
+    if (event.type === "turn_context") turns.push({ model: payload.model ?? null, effort: payload.effort ?? null });
+    if (event.type === "response_item" && payload.type === "message" && payload.role === "developer") {
+      const text = (Array.isArray(payload.content) ? payload.content : []).map((part) => String(part?.text ?? "")).join("\n");
+      if (/^##\s*Memory\s*$/m.test(text)) memory = true;
+    }
+  }
+  if (turns.length === 0) return { pass: false, detail: "세션 기록에 차례 정보가 없습니다" };
+  const wrong = turns.filter((turn) => turn.model !== model || turn.effort !== effort);
+  const problems = [];
+  if (memory) problems.push("개발자 지시에 메모리 안내가 들어 있음");
+  if (wrong.length > 0) problems.push(`설정(${model}, ${effort})과 다른 차례: ${wrong.map((turn) => `모델=${turn.model} 추론 강도=${turn.effort}`).join(", ")}`);
+  if (problems.length > 0) return { pass: false, detail: problems.join("; ") };
+  return { pass: true, detail: `차례 ${turns.length}개 모두 모델=${model} 추론 강도=${effort}, 메모리 안내 없음` };
+}
+
 export function evaluateBoundary(testsLine, { outsideFileExists, gitFileExists, shimFileExists = false }) {
   const text = String(testsLine ?? "");
   let probe = null;

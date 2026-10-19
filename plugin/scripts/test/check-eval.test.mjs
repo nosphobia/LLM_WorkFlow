@@ -1,6 +1,34 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { trailerModel, evaluateBoundary } from "../lib/check-eval.mjs";
+import { trailerModel, evaluateBoundary, evaluatePinnedTurns } from "../lib/check-eval.mjs";
+
+const rollout = ({ model = "gpt-5.6-sol", effort = "ultra", memory = false, turns = 1 } = {}) =>
+  [
+    { type: "session_meta", payload: { id: "t1" } },
+    {
+      type: "response_item",
+      payload: { type: "message", role: "developer", content: [{ type: "input_text", text: memory ? "## Memory\r\n\r\nYou have access to a memory folder with guidance from prior runs." : "## Permissions\nsandbox" }] }
+    },
+    ...Array.from({ length: turns }, (_, i) => ({ type: "turn_context", payload: { turn_id: `u${i}`, model, effort } }))
+  ]
+    .map((line) => JSON.stringify(line))
+    .join("\n");
+
+test("세션 기록의 모든 차례가 설정한 모델·추론 강도이고 메모리 안내가 없으면 통과다", () => {
+  const verdict = evaluatePinnedTurns(rollout({ turns: 2 }), { model: "gpt-5.6-sol", effort: "ultra" });
+  assert.equal(verdict.pass, true);
+  assert.equal(verdict.detail, "차례 2개 모두 모델=gpt-5.6-sol 추론 강도=ultra, 메모리 안내 없음");
+});
+
+test("메모리 안내가 있거나 모델·추론 강도가 다르거나 차례 정보가 없으면 실패다", () => {
+  const want = { model: "gpt-5.6-sol", effort: "ultra" };
+  assert.match(evaluatePinnedTurns(rollout({ memory: true }), want).detail, /메모리 안내가 들어 있음/);
+  assert.equal(evaluatePinnedTurns(rollout({ memory: true }), want).pass, false);
+  assert.match(evaluatePinnedTurns(rollout({ model: "gpt-6-astra" }), want).detail, /모델=gpt-6-astra/);
+  assert.match(evaluatePinnedTurns(rollout({ effort: "high" }), want).detail, /추론 강도=high/);
+  assert.match(evaluatePinnedTurns(rollout({ turns: 0 }), want).detail, /차례 정보가 없습니다/);
+  assert.equal(evaluatePinnedTurns(null, want).pass, false);
+});
 
 const DENIED = '{"outside_write": "denied", "git_write": "denied", "network": "denied"}';
 

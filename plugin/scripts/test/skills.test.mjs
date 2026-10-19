@@ -102,6 +102,17 @@ test("실행 스킬은 최종 수정 뒤 HEAD에서 마스터 테스트를 다�
   }
 });
 
+test("계획 지시 틀은 명세 머리말 줄을 정하고, 계획 검수는 그 줄을 확인한다", () => {
+  assert.ok(read("codex-planning", "plan-prompt.md").includes("**Spec:** `{{SPEC_PATH}}`"));
+  assert.match(read("codex-planning", "plan-review-additions.md"), /\*\*Spec:\*\* `<spec path>`/);
+});
+
+test("실행 스킬의 병합은 사용자 승인 뒤 로컬로만 하고 push는 하지 않는다", () => {
+  const skill = read("codex-execution", "SKILL.md");
+  assert.ok(skill.includes("main 병합은 사용자 승인 뒤 로컬로 한다"));
+  assert.ok(skill.includes("push와 PR은 하지 않는다"));
+});
+
 test("계획 스킬은 한도 확인, 계획 검토 요청 줄, 멈춤과 재개 규칙을 담는다", () => {
   const skill = read("codex-planning", "SKILL.md");
   for (const phrase of ["limits --cwd <저장소> --phase plan", "계획 검토: 요청", "멈춤:", "이어서 진행", "Plan: committed", "Plan review:", "[기획 · 큰 문제]", "묻지 않고 작업 브랜치", "측정: 예", "재개 승인", "짧은 진행 알림도", "<진행 기록 폴더>/reports/"]) {

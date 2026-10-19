@@ -33,6 +33,13 @@ test("템플릿 규칙은 메시지, 명세, 이어서 진행, 권한 규칙을 
   assert.doesNotMatch(claude, /권한 문제로 막히면 우회하지 말고 멈춘 뒤 사용자에게 알린다/);
 });
 
+test("템플릿 규칙은 병합과 push의 주체, 작업 규모와 무관한 Codex 작성을 정한다", () => {
+  const claude = read("CLAUDE.md");
+  assert.ok(claude.includes("main 병합은 사용자 승인 뒤 AI가 로컬로 한다. push는 사용자가 직접 한다."));
+  assert.doesNotMatch(claude, /push와 merge는 사용자 승인을 받은 뒤에만 한다/);
+  assert.ok(claude.includes("작업 규모와 관계없이 계획과 코드는 Codex가 쓰고, Claude는 검수만 한다."));
+});
+
 test("템플릿 규칙은 명세 승인 뒤 계획과 실행을 우리 스킬로 보낸다", () => {
   const claude = read("CLAUDE.md");
   assert.ok(

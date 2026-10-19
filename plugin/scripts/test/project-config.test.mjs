@@ -12,14 +12,23 @@ test("설정 파일 경로와 명령 전용 임시 폴더", () => {
   assert.equal(codexTmpDir(repoDir), tmp);
 });
 
-test("외부 연결 도구를 끄고 명령 환경을 정하는 설정을 만든다", () => {
-  const text = buildProjectConfig({ repoDir, shimDir });
+const pinned = { model: "gpt-5.6-sol", effort: "ultra" };
+const expected = { repoDir, shimDir, ...pinned };
+
+test("외부 연결 도구와 메모리를 끄고, 모델·추론 강도와 명령 환경을 정하는 설정을 만든다", () => {
+  const text = buildProjectConfig(expected);
   assert.match(text, /^# llm-workflow 래퍼가 관리한다/);
-  assert.match(text, /^\[features\]\napps = false$/m);
+  // TOML의 최상위 키는 첫 표([...]) 앞에 있어야 한다.
+  const firstTable = text.search(/^\[/m);
+  assert.ok(text.indexOf("model = 'gpt-5.6-sol'\n") < firstTable);
+  assert.ok(text.indexOf("model_reasoning_effort = 'ultra'\n") < firstTable);
+  assert.match(text, /^\[features\]\napps = false\nmemories = false$/m);
+  assert.match(text, /^\[memories\]\ngenerate_memories = false\nuse_memories = false$/m);
   assert.match(text, /^\[shell_environment_policy\]$/m);
   assert.ok(text.includes(`set = { TEMP = '${tmp}', TMP = '${tmp}', PYTHONPATH = '${shimDir}' }`));
   assert.doesNotMatch(text, /multi_agent/);
-  assert.throws(() => buildProjectConfig({ repoDir: "C:\\it's", shimDir }), /쓸 수 없는 문자/);
+  assert.throws(() => buildProjectConfig({ ...expected, repoDir: "C:\\it's" }), /쓸 수 없는 문자/);
+  assert.throws(() => buildProjectConfig({ repoDir, shimDir }), /모델/);
 });
 
 test("해시는 내용이 같으면 같고 다르면 다르다", () => {
@@ -28,26 +37,44 @@ test("해시는 내용이 같으면 같고 다르면 다르다", () => {
   assert.equal(hashText(null), hashText(""));
 });
 
-const configRead = ({ disabled = false, apps = false, set = { TEMP: tmp, TMP: tmp, PYTHONPATH: shimDir } } = {}) => ({
-  config: { features: { apps }, shell_environment_policy: { set } },
+const configRead = ({
+  disabled = false,
+  apps = false,
+  memoriesFeature = false,
+  memories = { generate_memories: false, use_memories: false },
+  model = "gpt-5.6-sol",
+  effort = "ultra",
+  set = { TEMP: tmp, TMP: tmp, PYTHONPATH: shimDir }
+} = {}) => ({
+  config: { model, model_reasoning_effort: effort, features: { apps, memories: memoriesFeature }, memories, shell_environment_policy: { set } },
   layers: [{ name: { type: "project", dotCodexFolder: path.join(repoDir, ".codex") }, ...(disabled ? { disabledReason: "add as a trusted project" } : {}) }, { name: { type: "user" } }]
 });
 
 test("실제 설정이 맞으면 문제가 없다 (경로 대소문자는 가리지 않는다)", () => {
-  assert.deepEqual(checkEffectiveConfig(configRead(), { repoDir, shimDir }), { problems: [], projectDisabled: false });
+  assert.deepEqual(checkEffectiveConfig(configRead(), expected), { problems: [], projectDisabled: false });
   const upper = configRead({ set: { TEMP: tmp.toUpperCase(), TMP: tmp, PYTHONPATH: shimDir } });
-  assert.deepEqual(checkEffectiveConfig(upper, { repoDir, shimDir }).problems, []);
+  assert.deepEqual(checkEffectiveConfig(upper, expected).problems, []);
 });
 
 test("프로젝트 층이 꺼졌거나 값이 다르면 문제로 알린다", () => {
-  const disabled = checkEffectiveConfig(configRead({ disabled: true }), { repoDir, shimDir });
+  const disabled = checkEffectiveConfig(configRead({ disabled: true }), expected);
   assert.equal(disabled.projectDisabled, true);
   assert.match(disabled.problems.join("; "), /프로젝트 Codex 설정이 꺼져 있습니다/);
-  assert.match(checkEffectiveConfig(configRead({ apps: true }), { repoDir, shimDir }).problems.join("; "), /features\.apps/);
-  const wrongTemp = checkEffectiveConfig(configRead({ set: { TEMP: "C:\\Temp", TMP: tmp, PYTHONPATH: shimDir } }), { repoDir, shimDir });
+  assert.match(checkEffectiveConfig(configRead({ apps: true }), expected).problems.join("; "), /features\.apps/);
+  const wrongTemp = checkEffectiveConfig(configRead({ set: { TEMP: "C:\\Temp", TMP: tmp, PYTHONPATH: shimDir } }), expected);
   assert.match(wrongTemp.problems.join("; "), /명령 환경 TEMP가 다릅니다: C:\\Temp/);
-  const noLayer = checkEffectiveConfig({ config: {}, layers: [] }, { repoDir, shimDir });
+  const noLayer = checkEffectiveConfig({ config: {}, layers: [] }, expected);
   assert.match(noLayer.problems.join("; "), /프로젝트 Codex 설정 층이 없습니다/);
+});
+
+test("모델·추론 강도가 워크플로우 설정과 다르거나 메모리가 꺼지지 않았으면 문제로 알린다", () => {
+  const problems = (overrides) => checkEffectiveConfig(configRead(overrides), expected).problems.join("; ");
+  assert.match(problems({ model: "gpt-6-astra" }), /모델이 다릅니다: gpt-6-astra \(설정 gpt-5\.6-sol\)/);
+  assert.match(problems({ effort: "high" }), /추론 강도가 다릅니다: high \(설정 ultra\)/);
+  assert.match(problems({ memoriesFeature: true }), /features\.memories/);
+  assert.match(problems({ memories: { generate_memories: false } }), /memories\.use_memories/);
+  assert.match(problems({ memories: { generate_memories: true, use_memories: false } }), /memories\.generate_memories/);
+  assert.match(checkEffectiveConfig({ config: {}, layers: configRead().layers }, expected).problems.join("; "), /모델이 다릅니다: 없음/);
 });
 
 test("MCP 상태에서 외부 연결 도구를 찾는다", () => {
