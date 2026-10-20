@@ -21,7 +21,7 @@ test("실제 설정 파일을 읽을 수 있고 보호 경로와 두 요금제 �
   assert.deepEqual(parsed.settings.limits.plus["300"], { plan: 50, executeBase: 0, executePerTask: 18, call: 30 });
   assert.deepEqual(parsed.settings.limits.plus["10080"], { plan: 10, executeBase: 7, executePerTask: 3, call: 5 });
   assert.deepEqual(parsed.settings.limits.prolite["10080"], { plan: 5, executeBase: 5, executePerTask: 2, call: 5 });
-  assert.deepEqual(parsed.settings.codex, { model: "gpt-5.6-sol", reasoningEffort: "ultra", escalatedReasoningEffort: "ultra" });
+  assert.deepEqual(parsed.settings.codex, { model: "gpt-5.6-sol", reasoningEffort: "max", escalatedReasoningEffort: "max" });
 });
 
 test("Codex 모델과 추론 강도가 없거나 쓸 수 없는 값이면 거부한다", () => {
