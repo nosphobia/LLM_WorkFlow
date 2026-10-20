@@ -25,9 +25,10 @@ export function findRiskyCommands(commands) {
   const found = [];
   for (const raw of commands ?? []) {
     const text = String(raw ?? "");
-    // 파일 수정 내용(apply_patch 본문)은 실행한 명령이 아니다.
-    if (text.includes("*** Begin Patch")) continue;
-    const matches = PATTERNS.filter((pattern) => pattern.re.test(text)).map((pattern) => pattern.name);
+    // 파일 수정 내용(apply_patch 본문)은 실행한 명령이 아니다. 완결된 패치 본문만 빼고 나머지는 검사한다.
+    // 표식 문자열만 들어간 셸 명령이나, 한 호출 안에서 패치와 함께 실행한 명령까지 빠뜨리지 않기 위해서다.
+    const executed = text.replace(/\*\*\* Begin Patch[\s\S]*?\*\*\* End Patch/g, "");
+    const matches = PATTERNS.filter((pattern) => pattern.re.test(executed)).map((pattern) => pattern.name);
     if (matches.length > 0) found.push({ command: text.replace(/\s+/g, " ").trim().slice(0, 300), matches });
   }
   return found;

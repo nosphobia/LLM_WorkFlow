@@ -34,10 +34,21 @@ test("이번 호출에서 생긴 하위와 그 하위만 찾는다", () => {
   write("rollout-e-old.jsonl", [meta("old", "p1"), tokens(3)].join("\n"), since - 3_600_000);
   write("notes.txt", "not a rollout");
   const found = findSubagents(dir, "p1", since);
-  assert.deepEqual(found.map((child) => child.threadId).sort(), ["c1", "g1"]);
-  assert.deepEqual(findSubagents(dir, null, since), []);
-  assert.deepEqual(findSubagents(path.join(dir, "missing"), "p1", since), []);
+  assert.deepEqual(found.children.map((child) => child.threadId).sort(), ["c1", "g1"]);
+  assert.deepEqual(found.errors, []);
+  assert.deepEqual(findSubagents(dir, null, since), { children: [], errors: [] });
+});
 
+test("기록을 읽지 못하면 빠뜨린 채 0개로 보지 않고 errors에 남긴다", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "subagents-err-"));
+  fs.writeFileSync(path.join(dir, "rollout-b-c1.jsonl"), [meta("c1", "p1"), tokens(5)].join("\n"));
+  fs.writeFileSync(path.join(dir, "rollout-c-g1.jsonl"), [meta("g1", "c1"), tokens(7)].join("\n"));
   const locked = { ...fs, readFileSync: (file, ...rest) => { if (String(file).includes("rollout-c-")) throw Object.assign(new Error("busy"), { code: "EBUSY" }); return fs.readFileSync(file, ...rest); } };
-  assert.deepEqual(findSubagents(dir, "p1", since, locked).map((child) => child.threadId), ["c1"]);
+  const result = findSubagents(dir, "p1", Date.now() - 60_000, locked);
+  assert.deepEqual(result.children.map((child) => child.threadId), ["c1"]);
+  assert.equal(result.errors.length, 1);
+  assert.match(result.errors[0], /rollout-c-g1\.jsonl: EBUSY/);
+  const missing = findSubagents(path.join(dir, "missing"), "p1", 0);
+  assert.deepEqual(missing.children, []);
+  assert.match(missing.errors[0], /세션 폴더가 없습니다/);
 });

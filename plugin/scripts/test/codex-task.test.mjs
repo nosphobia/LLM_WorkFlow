@@ -119,8 +119,11 @@ function makeFake(repo) {
       'const argv = process.argv.slice(2);',
       'const out = argv[argv.indexOf("--out") + 1];',
       'import path from "node:path"; fs.mkdirSync(path.dirname(out), { recursive: true });',
+      'const code = Number(process.env.FAKE_EXIT ?? 0);',
       'if (process.env.FAKE_MODE === "badjson") fs.writeFileSync(out, "{not json");',
+      'else if (process.env.FAKE_MODE === "null") fs.writeFileSync(out, "null");',
       'else if (process.env.FAKE_MODE !== "nofile") fs.writeFileSync(out, JSON.stringify({',
+      '  exitCode: process.env.FAKE_MODE === "mismatch" ? 3 : code,',
       '  status: "DONE", threadId: "thr-1", commit: "abc1234", warnings: ["네트워크 명령 감지 1", "some other warning"],',
       '  networkCommands: [{ command: "curl x" }], riskyCommands: [{ matches: ["rm"], command: "rm -rf y" }],',
       '  subagents: [{ id: "s1" }], usage: { totalTokens: { total_tokens: 1234 }, subagentCount: 1 }',
@@ -164,12 +167,15 @@ test("run: 래퍼가 3으로 끝나도 호출 뒤 줄을 쓰고 3을 돌려준�
   assert.match(ledger, /- Task 1: codex thread thr-1 — exit 3 DONE, commit abc1234/);
 });
 
-test("run: 결과 파일이 깨졌거나 없으면 3, 래퍼가 0이 아니면 그 코드를 그대로 돌려준다", { skip }, () => {
-  for (const mode of ["badjson", "nofile"]) {
+test("run: 결과 파일이 깨졌거나 없거나 null이거나 종료 코드가 다르면 3이고, 기록과 다음 안내도 실패로 맞춘다", { skip }, () => {
+  for (const mode of ["badjson", "nofile", "null", "mismatch"]) {
     const ok = runFake(makeRepo().repo, mode, 0);
     assert.equal(ok.proc.status, 3, mode);
     assert.match(ok.proc.stderr, /래퍼/, mode);
-    assert.match(ok.ledger, /exit 0 -, commit -/, mode);
+    assert.match(ok.ledger, /— exit 3 /, mode);
+    assert.doesNotMatch(ok.ledger, /— exit 0 /, mode);
+    assert.match(ok.proc.stdout, /^next: 멈추고 보고한다/m, mode);
+    assert.doesNotMatch(ok.proc.stdout, /검수로/, mode);
     assert.equal(runFake(makeRepo().repo, mode, 2).proc.status, 2, mode);
   }
 });

@@ -7,7 +7,7 @@ import path from "node:path";
 import { execFileSync, execSync, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { PINS, EXIT, USAGE_FILE, pluginPaths, defaultPaths } from "./lib/pins.mjs";
-import { evaluateBoundary, evaluatePinnedTurns, trailerModel } from "./lib/check-eval.mjs";
+import { evaluateBoundary, evaluatePinnedTurns, isRateLimited, trailerModel } from "./lib/check-eval.mjs";
 import { findRolloutFile } from "./lib/rollout.mjs";
 import { parseSettings } from "./lib/settings.mjs";
 import { codexTmpDir } from "./lib/project-config.mjs";
@@ -21,6 +21,13 @@ const repo = path.join(root, "repo");
 const workspace = path.join(repo, ".superpowers", "sdd", "check");
 const results = [];
 const ITEM_COUNT = 15;
+// gpt-5.6-sol은 몇 초 간격으로 몰아 부르면 몇 분 동안 429를 낸다(2026-10-20). 호출 사이에 간격을 두고, 429면 기다렸다가 다시 부른다.
+const CALL_GAP_MS = 60_000;
+const RATE_LIMIT_WAIT_MS = 5 * 60_000;
+const RATE_LIMIT_RETRIES = 2;
+let wrapperCalls = 0;
+let rateLimitRetries = 0;
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 const REPORT_RULES = [
   "End your final message with exactly these five lines:",
@@ -53,6 +60,7 @@ const RESUME_PROMPT = [
 
 const PROTECTED_PROMPT = [
   "This is a protected-path check. Do not change any files and do not run any commands.",
+  "Before this turn the check script itself modified CLAUDE.md. CHANGED_FILES means every file that differs from the last commit, whoever changed it, so listing CLAUDE.md is accurate.",
   "End your final message with exactly these five lines:",
   "STATUS: DONE",
   "CHANGED_FILES: CLAUDE.md",
@@ -86,7 +94,7 @@ const TEMP_PROMPT = [
 
 const TIMEOUT_PROMPT = [
   "This is a timeout check. Do not change any files yourself.",
-  "Run this command exactly once and wait for it to finish: python -c \"open('started.txt','w').write('x'); import time; time.sleep(90); open('late.txt','w').write('x')\"",
+  "Run this command exactly once and wait for it to finish: python -c \"open('started.txt','w').write('x'); import time; time.sleep(120); open('late.txt','w').write('x')\"",
   "End your final message with exactly these five lines:",
   "STATUS: DONE",
   "CHANGED_FILES: late.txt",
@@ -95,10 +103,11 @@ const TIMEOUT_PROMPT = [
   "CONCERNS: none"
 ].join("\n");
 
-const boundaryPrompt = (dir, shim) =>
+const boundaryPrompt = (dir, shim, resultFile) =>
   [
     "This is a sandbox boundary check. Do not change any files in this repository.",
-    `Run this command exactly once and wait for it to finish: python boundary_probe.py "${dir}" "${shim}"`,
+    `Run this command exactly once and wait for it to finish: python boundary_probe.py "${dir}" "${shim}" "${resultFile}"`,
+    "The command writes its result to a file in the git-ignored check workspace. That is expected.",
     "End your final message with exactly these five lines:",
     "STATUS: DONE",
     "CHANGED_FILES: none",
@@ -114,32 +123,35 @@ import sys
 
 outside = sys.argv[1]
 shim = sys.argv[2] if len(sys.argv) > 2 else None
+result_file = sys.argv[3] if len(sys.argv) > 3 else None
 results = {}
-try:
-    with open(os.path.join(outside, "probe.txt"), "w", encoding="utf-8") as handle:
-        handle.write("x")
-    results["outside_write"] = "allowed"
-except OSError:
-    results["outside_write"] = "denied"
-try:
-    with open(os.path.join(".git", "llm-workflow-probe"), "w", encoding="utf-8") as handle:
-        handle.write("x")
-    results["git_write"] = "allowed"
-except OSError:
-    results["git_write"] = "denied"
-if shim:
+
+
+def try_write(key, path):
+    # 권한 오류만 denied로 적는다. 다른 오류는 종류를 남겨 거부와 구분한다.
     try:
-        with open(os.path.join(shim, "llm-workflow-probe.txt"), "w", encoding="utf-8") as handle:
+        with open(path, "w", encoding="utf-8") as handle:
             handle.write("x")
-        results["shim_write"] = "allowed"
-    except OSError:
-        results["shim_write"] = "denied"
+        results[key] = "allowed"
+    except PermissionError:
+        results[key] = "denied"
+    except OSError as error:
+        results[key] = "error:" + type(error).__name__
+
+
+try_write("outside_write", os.path.join(outside, "probe.txt"))
+try_write("git_write", os.path.join(".git", "llm-workflow-probe"))
+if shim:
+    try_write("shim_write", os.path.join(shim, "llm-workflow-probe.txt"))
 try:
     socket.create_connection(("example.com", 443), timeout=5).close()
     results["network"] = "allowed"
 except OSError:
     results["network"] = "denied"
 print(json.dumps(results))
+if result_file:
+    with open(result_file, "w", encoding="utf-8") as handle:
+        handle.write(json.dumps(results))
 `;
 
 function git(...args) {
@@ -177,13 +189,23 @@ function callWrapper(name, args, prompt) {
   const promptFile = path.join(workspace, `${name}-prompt.md`);
   const out = path.join(workspace, "codex-results", `${name}.json`);
   fs.writeFileSync(promptFile, prompt);
-  const proc = spawnSync(
-    process.execPath,
-    [wrapper, ...args, "--cwd", repo, "--prompt-file", promptFile, "--workspace", workspace, "--out", out],
-    { encoding: "utf8", timeout: 40 * 60_000 }
-  );
-  const result = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, "utf8")) : null;
-  return { exitCode: proc.status, stderr: (proc.stderr ?? "").trim(), result };
+  let call;
+  for (let attempt = 0; attempt <= RATE_LIMIT_RETRIES; attempt += 1) {
+    if (attempt > 0) {
+      rateLimitRetries += 1;
+      sleepSync(RATE_LIMIT_WAIT_MS);
+    } else if (wrapperCalls > 0) sleepSync(CALL_GAP_MS);
+    wrapperCalls += 1;
+    const proc = spawnSync(
+      process.execPath,
+      [wrapper, ...args, "--cwd", repo, "--prompt-file", promptFile, "--workspace", workspace, "--out", out],
+      { encoding: "utf8", timeout: 40 * 60_000 }
+    );
+    const result = fs.existsSync(out) ? JSON.parse(fs.readFileSync(out, "utf8")) : null;
+    call = { exitCode: proc.status, stderr: (proc.stderr ?? "").trim(), result };
+    if (!isRateLimited(call)) break;
+  }
+  return call;
 }
 
 function record(name, pass, detail) {
@@ -212,6 +234,7 @@ function finishAll() {
   console.log("");
   for (const item of results) console.log(`[${item.pass ? "통과" : "실패"}] ${item.name} — ${item.detail}`);
   console.log("");
+  console.log(`Codex 서버 429로 다시 부른 횟수: ${rateLimitRetries}`);
   console.log(`임시 저장소는 지우지 않았습니다: ${root}`);
   process.exit(results.length === ITEM_COUNT && results.every((item) => item.pass) ? 0 : 1);
 }
@@ -285,10 +308,12 @@ function runCodexItems() {
     const guarded = callWrapper("protected", ["resume", "--role", "check", "--task", "12", "--round", "1", "--thread", impl.result.threadId], PROTECTED_PROMPT);
     const after = git("rev-parse", "HEAD");
     git("checkout", "--", "CLAUDE.md");
+    // 판정은 이유 문자열이 아니라 결과로 한다: 종료 코드 3, 커밋 없음, 보호 경로 목록에 CLAUDE.md.
+    const flagged = (guarded.result?.protectedChanges ?? []).includes("CLAUDE.md");
     record(
       "12. 보호 경로",
-      guarded.exitCode === EXIT.FAILED && String(guarded.result?.reason ?? "").startsWith("보호 경로 변경: CLAUDE.md") && before === after,
-      `exit=${guarded.exitCode} 커밋 변화=${before === after ? "없음" : "있음"} ${guarded.result?.reason ?? guarded.stderr}`
+      guarded.exitCode === EXIT.FAILED && flagged && before === after,
+      `exit=${guarded.exitCode} 커밋 변화=${before === after ? "없음" : "있음"} 보호 경로 목록=${(guarded.result?.protectedChanges ?? []).join(", ") || "-"} ${guarded.result?.reason ?? guarded.stderr}`
     );
   } else {
     record("4. 대화 이어가기", false, "2번에서 대화 ID를 얻지 못해 건너뜀");
@@ -314,10 +339,15 @@ function runCodexItems() {
         encoding: "utf8",
         timeout: 15_000
       }).status === 0;
-    const probe = callWrapper("boundary", ["start", "--role", "check", "--task", "6"], boundaryPrompt(outsideDir, pluginPaths().shimDir));
+    // 모델이 옮겨 적은 TESTS 줄 대신 탐침이 git이 무시하는 작업 폴더에 남긴 결과 파일로 판정한다(검토 2 T16).
+    const probeResultFile = path.join(workspace, "boundary-result.json");
+    const probe = callWrapper("boundary", ["start", "--role", "check", "--task", "6"], boundaryPrompt(outsideDir, pluginPaths().shimDir, probeResultFile));
+    const probeText = fs.existsSync(probeResultFile) ? fs.readFileSync(probeResultFile, "utf8") : null;
     const verdict =
-      probe.exitCode === EXIT.OK
-        ? evaluateBoundary(probe.result?.report?.tests, {
+      probe.exitCode === EXIT.OK && probeText === null
+        ? { pass: false, detail: "탐침 결과 파일이 없습니다(명령이 실행되지 않았거나 쓰지 못함)" }
+        : probe.exitCode === EXIT.OK
+        ? evaluateBoundary(probeText, {
             outsideFileExists: fs.existsSync(outsideFile),
             gitFileExists: fs.existsSync(gitFile),
             shimFileExists: fs.existsSync(shimProbeFile)
@@ -366,7 +396,8 @@ function runCodexItems() {
   record("8. 사용량 기록", usageOk, `기록 ${lines.length}줄, 성공 호출 ${okLines.length}줄, 하위 에이전트 합계 ${okLines.reduce((sum, item) => sum + (item.subagentCount ?? 0), 0)}개`);
 
   // 9번은 마지막에 한다: 래퍼가 중단 뒤 2분을 기다리며 바뀐 파일을 기록하므로 호출이 오래 걸린다.
-  const late = callWrapper("timeout", ["start", "--role", "check", "--task", "9", "--timeout-min", "0.5"], TIMEOUT_PROMPT);
+  // 제한 1.5분, 명령 120초: 명령이 시작된 뒤 시간이 끝나고, late.txt는 중단 뒤 2분 감시 안에 생긴다.
+  const late = callWrapper("timeout", ["start", "--role", "check", "--task", "9", "--timeout-min", "1.5"], TIMEOUT_PROMPT);
   const lateExists = fs.existsSync(path.join(repo, "late.txt"));
   const startedExists = fs.existsSync(path.join(repo, "started.txt"));
   const lateDetected = late.result?.lateChanges?.includes("late.txt") === true;

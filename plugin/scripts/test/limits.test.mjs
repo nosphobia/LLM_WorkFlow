@@ -55,6 +55,19 @@ test("실행 전 기준은 작업 수에 따라 커진다", () => {
   assert.match(short.reason, /기준 54%/);
 });
 
+test("있는 창의 사용률이 0~100의 숫자가 아니면 다른 창이 괜찮아도 error", () => {
+  const twoWindows = (primary) => ({ rateLimits: { planType: "plus", primary, secondary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: null } } });
+  for (const usedPercent of ["100", -5, 101, Number.NaN, null]) {
+    const result = evaluateLimits(twoWindows({ usedPercent, windowDurationMins: 300, resetsAt: null }), SETTINGS, { phase: "call" });
+    assert.equal(result.status, "error", String(usedPercent));
+    assert.match(result.reason, /한도 창 형식이 예상과 다릅니다/);
+  }
+  const noMinutes = evaluateLimits(twoWindows({ usedPercent: 10, resetsAt: null }), SETTINGS, { phase: "call" });
+  assert.equal(noMinutes.status, "error");
+  // 창 자체가 없으면(null) 그 창은 없는 것으로 본다.
+  assert.equal(evaluateLimits(twoWindows(null), SETTINGS, { phase: "call" }).status, "ok");
+});
+
 test("설정에 없는 요금제나 창이면 error", () => {
   const team = { rateLimits: { planType: "team", primary: { usedPercent: 0, windowDurationMins: 10080, resetsAt: null } } };
   const unknownPlan = evaluateLimits(team, SETTINGS, { phase: "call" });

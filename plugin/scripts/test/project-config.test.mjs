@@ -24,6 +24,7 @@ test("외부 연결 도구와 메모리를 끄고, 모델·추론 강도와 명�
   assert.ok(text.indexOf("model_reasoning_effort = 'ultra'\n") < firstTable);
   assert.match(text, /^\[features\]\napps = false\nmemories = false$/m);
   assert.match(text, /^\[memories\]\ngenerate_memories = false\nuse_memories = false$/m);
+  assert.match(text, /^\[sandbox_workspace_write\]\nnetwork_access = false\nwritable_roots = \[\]$/m);
   assert.match(text, /^\[shell_environment_policy\]$/m);
   assert.ok(text.includes(`set = { TEMP = '${tmp}', TMP = '${tmp}', PYTHONPATH = '${shimDir}' }`));
   assert.doesNotMatch(text, /multi_agent/);
@@ -67,6 +68,18 @@ test("프로젝트 층이 꺼졌거나 값이 다르면 문제로 알린다", ()
   assert.match(noLayer.problems.join("; "), /프로젝트 Codex 설정 층이 없습니다/);
 });
 
+test("유효 설정에서 샌드박스가 넓어졌으면 표기와 상관없이 문제로 알린다 (인용 키·인라인 테이블도 같은 값으로 읽힌다)", () => {
+  const read = (config) => {
+    const base = configRead();
+    return { ...base, config: { ...base.config, ...config } };
+  };
+  const problems = (config) => checkEffectiveConfig(read(config), expected).problems.join("; ");
+  assert.equal(problems({ sandbox_mode: null, sandbox_workspace_write: { network_access: false, writable_roots: [] } }), "");
+  assert.match(problems({ sandbox_mode: "danger-full-access" }), /danger-full-access/);
+  assert.match(problems({ sandbox_workspace_write: { network_access: true, writable_roots: [] } }), /network_access/);
+  assert.match(problems({ sandbox_workspace_write: { network_access: false, writable_roots: ["D:\\outside"] } }), /writable_roots.*D:\\outside/);
+});
+
 test("모델·추론 강도가 워크플로우 설정과 다르거나 메모리가 꺼지지 않았으면 문제로 알린다", () => {
   const problems = (overrides) => checkEffectiveConfig(configRead(overrides), expected).problems.join("; ");
   assert.match(problems({ model: "gpt-6-astra" }), /모델이 다릅니다: gpt-6-astra \(설정 gpt-5\.6-sol\)/);
@@ -84,4 +97,11 @@ test("MCP 상태에서 외부 연결 도구를 찾는다", () => {
   assert.deepEqual(findAppsTools({ data: [{ name: "codex_apps", toolsError: "x" }] }), { present: true, tools: [] });
   assert.throws(() => findAppsTools(null), /mcpServerStatus\/list/);
   assert.throws(() => findAppsTools({}), /mcpServerStatus\/list/);
+});
+
+test("MCP 상태의 항목 형식이 예상과 다르면 없음으로 읽지 않고 던진다", () => {
+  assert.deepEqual(findAppsTools({ data: [] }), { present: false, tools: [] });
+  for (const data of [[null], [{ serverName: "codex_apps" }], [{ name: 7 }], [{ name: "codex_apps", tools: ["a"] }], [{ name: "codex_apps", tools: null }]]) {
+    assert.throws(() => findAppsTools({ data }), /항목 형식/, JSON.stringify(data));
+  }
 });

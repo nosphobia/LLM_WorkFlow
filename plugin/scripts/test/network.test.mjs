@@ -20,6 +20,13 @@ test("네트워크를 쓰는 명령을 찾는다", () => {
   }
 });
 
+test("git 전역 옵션이 앞에 붙은 원격 명령도 찾는다", () => {
+  for (const command of ["git -C . push origin HEAD:main", "git -c core.hooksPath=NUL push origin main", "git --no-pager fetch", "git.exe -C repo pull"]) {
+    assert.deepEqual(findNetworkCommands([command])[0]?.matches, ["git remote"], command);
+  }
+  assert.deepEqual(findNetworkCommands(["git -C . status", "git -c color.ui=false log -1"]), []);
+});
+
 test("네트워크를 쓰지 않는 명령은 찾지 않는다", () => {
   const commands = ["python -m unittest", "Get-Content -Raw 'C:\\x\\SKILL.md'", "git status", "git log -1", "npm test", "npm init"];
   assert.deepEqual(findNetworkCommands(commands), []);

@@ -35,6 +35,14 @@ test("호출 기록 합계를 낸다", () => {
   assert.equal(summary.weeklyEnd, 15);
 });
 
+test("확인 못 한 호출 수를 따로 센다", () => {
+  const lines = [
+    { role: "implement", exitCode: 0, tokens: { total_tokens: 100 }, incomplete: true },
+    { role: "implement", exitCode: 0, tokens: { total_tokens: 100 } }
+  ].map((value) => JSON.stringify(value)).join("\n");
+  assert.equal(summarizeCalls(lines).incompleteCalls, 1);
+});
+
 test("하위 에이전트 토큰과 수, 위험 명령 수를 합친다 (옛 기록은 없는 것으로 본다)", () => {
   const lines = [
     { role: "implement", exitCode: 0, tokens: { total_tokens: 100 }, subagentCount: 2, subagentTokens: { total_tokens: 40 }, riskyCommands: 1 },

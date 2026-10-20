@@ -27,9 +27,12 @@ export function parseChildRollout(text) {
   return child;
 }
 
+// 돌려주는 값: { children, errors }. 읽지 못한 기록은 errors에 남긴다. "0개"와 "확인 못 함"을 구분하기 위해서다(검토 2 S6).
 export function findSubagents(sessionsDir, parentThreadId, sinceMs, fsx = fs) {
-  if (!parentThreadId || !fsx.existsSync(sessionsDir)) return [];
+  if (!parentThreadId) return { children: [], errors: [] };
+  if (!fsx.existsSync(sessionsDir)) return { children: [], errors: [`세션 폴더가 없습니다: ${sessionsDir}`] };
   const candidates = [];
+  const errors = [];
   for (const name of fsx.readdirSync(sessionsDir, { recursive: true })) {
     const file = path.join(sessionsDir, String(name));
     if (!file.endsWith(".jsonl")) continue;
@@ -38,8 +41,8 @@ export function findSubagents(sessionsDir, parentThreadId, sinceMs, fsx = fs) {
       // 이번 호출 전에 끝난 기록은 앞 호출의 하위 에이전트다. 같은 대화를 이어갈 때 두 번 세지 않는다.
       if (stat.mtimeMs < sinceMs) continue;
       candidates.push(parseChildRollout(fsx.readFileSync(file, "utf8")));
-    } catch {
-      continue;
+    } catch (error) {
+      errors.push(`${path.basename(file)}: ${error?.code ?? error?.message ?? error}`);
     }
   }
   const parents = new Set([parentThreadId]);
@@ -55,5 +58,5 @@ export function findSubagents(sessionsDir, parentThreadId, sinceMs, fsx = fs) {
       }
     }
   }
-  return found;
+  return { children: found, errors };
 }

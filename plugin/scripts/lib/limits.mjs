@@ -23,7 +23,12 @@ export function evaluateLimits(response, settings, { phase, tasks = 0 }) {
   }
   const windows = [];
   for (const window of [snapshot.primary, snapshot.secondary]) {
-    if (!window || typeof window.usedPercent !== "number") continue;
+    // 창이 없으면(null) 그 창은 없는 것이다. 있는데 형식이 틀리면 건너뛰지 않는다(확인 실패를 통과로 읽지 않는다).
+    if (window === null || window === undefined) continue;
+    const used = window.usedPercent;
+    if (typeof used !== "number" || !Number.isFinite(used) || used < 0 || used > 100 || !Number.isFinite(window.windowDurationMins)) {
+      return { status: "error", planType, reason: `한도 창 형식이 예상과 다릅니다: ${JSON.stringify(window)}`, windows };
+    }
     const minutes = window.windowDurationMins;
     const rule = rules[String(minutes)];
     if (!rule) return { status: "error", planType, reason: `설정 파일에 요금제 ${planType}의 ${minutes}분 창 기준값이 없습니다`, windows };

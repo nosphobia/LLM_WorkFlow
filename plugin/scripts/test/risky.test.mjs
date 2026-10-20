@@ -41,6 +41,13 @@ test("명령 단어가 아닌 곳과 파일 수정 내용에는 걸리지 않는
   assert.deepEqual(findRiskyCommands(undefined), []);
 });
 
+test("패치 본문만 빼고, 패치 표식 문자열이 들어간 셸 명령이나 패치 밖의 명령은 검사한다", () => {
+  const shell = "Write-Output '*** Begin Patch'; Stop-Process -Id 12345";
+  const mixed = "const patch = \"*** Begin Patch\\n*** Add File: a.md\\n+taskkill is banned\\n*** End Patch\";\nawait tools.apply_patch(patch);\nawait tools.exec_command({cmd: \"takeown /f tmpdir\"});";
+  const found = findRiskyCommands([shell, mixed]);
+  assert.deepEqual(found.map((item) => item.matches), [["프로세스 종료"], ["권한 변경"]]);
+});
+
 test("긴 명령은 공백을 줄이고 300자로 자른다", () => {
   const found = findRiskyCommands([`taskkill   /PID 1 ${"x".repeat(400)}`]);
   assert.equal(found[0].command.length, 300);

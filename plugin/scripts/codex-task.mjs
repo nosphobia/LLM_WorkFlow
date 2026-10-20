@@ -271,7 +271,7 @@ if (args["dry-run"]) {
 if (role === "implement" && !args.thread) appendLedger("progress", `Task ${task}: base ${head.slice(0, 7)}`);
 // 래퍼 한 번은 최대 3턴(첫 턴, 형식 보정, 불일치 보정)이고 턴마다 제한 시간과 중단 뒤 2분 감시가 있다. 그보다 길게 기다린다.
 const proc = spawnSync(process.execPath, wrapperArgs, { cwd: repo, encoding: "utf8", timeout: Math.ceil(3 * timeoutMin + 10) * 60_000 });
-const exitCode = proc.status ?? EXIT.FAILED;
+const processCode = proc.status ?? EXIT.FAILED;
 let result = null;
 let resultError = null;
 if (!fs.existsSync(out)) resultError = `래퍼가 결과 파일을 만들지 않았습니다: ${out}`;
@@ -281,7 +281,15 @@ else {
   } catch (error) {
     resultError = `래퍼 결과 파일을 읽지 못했습니다: ${out} (${error.message})`;
   }
+  if (!resultError && (result === null || typeof result !== "object" || typeof result.exitCode !== "number")) {
+    resultError = `래퍼 결과 파일의 형식이 예상과 다릅니다: ${out}`;
+    result = null;
+  } else if (!resultError && result.exitCode !== processCode) {
+    resultError = `래퍼 결과 파일의 종료 코드(${result.exitCode})와 래퍼 종료 코드(${processCode})가 다릅니다: ${out}`;
+  }
 }
+// 진행 기록, 요약, 다음 안내는 최종 종료 코드 하나로 만든다(검토 2 C3). 결과 파일에 문제가 있으면 성공으로 기록하지 않는다.
+const exitCode = resultError ? (processCode !== EXIT.OK ? processCode : EXIT.FAILED) : processCode;
 
 const label = role === "final-fix" ? "Final fix" : `Task ${task}`;
 const roleNote = role === "implement" ? "" : role === "final-fix" ? "" : ` (${role} round ${call.round})`;
@@ -324,8 +332,5 @@ if (exitCode === EXIT.OK && role === "implement") {
 }
 if (result?.status === "DONE_WITH_CONCERNS") next = `우려를 먼저 읽는다. ${next}`;
 console.log(`next: ${next}`);
-if (resultError) {
-  console.error(`codex-task run: ${resultError}`);
-  process.exit(exitCode !== 0 ? exitCode : EXIT.FAILED);
-}
+if (resultError) console.error(`codex-task run: ${resultError}`);
 process.exit(exitCode);

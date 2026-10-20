@@ -31,6 +31,10 @@ export function buildProjectConfig({ repoDir, shimDir, model, effort }) {
     "generate_memories = false",
     "use_memories = false",
     "",
+    "[sandbox_workspace_write]",
+    "network_access = false",
+    "writable_roots = []",
+    "",
     "[shell_environment_policy]",
     `set = { TEMP = ${literal(tmp)}, TMP = ${literal(tmp)}, PYTHONPATH = ${literal(shimDir)} }`,
     ""
@@ -52,6 +56,13 @@ export function checkEffectiveConfig(configRead, { repoDir, shimDir, model, effo
   for (const key of ["use_memories", "generate_memories"]) {
     if (config.memories?.[key] !== false) problems.push(`메모리 설정(memories.${key})이 꺼져 있지 않습니다`);
   }
+  // 원문 정규식 검사는 인용 키·인라인 테이블을 놓친다(검토 2 S3). 유효 설정의 값으로 다시 본다.
+  if (config.sandbox_mode === "danger-full-access") problems.push("전체 접근 모드(sandbox_mode = danger-full-access)가 설정되어 있습니다");
+  const workspaceWrite = config.sandbox_workspace_write ?? {};
+  if (workspaceWrite.network_access === true) problems.push("네트워크 허용(sandbox_workspace_write.network_access = true)이 설정되어 있습니다");
+  if (Array.isArray(workspaceWrite.writable_roots) && workspaceWrite.writable_roots.length > 0) {
+    problems.push(`추가 쓰기 경로(sandbox_workspace_write.writable_roots)가 설정되어 있습니다: ${workspaceWrite.writable_roots.join(", ")}`);
+  }
   const set = config.shell_environment_policy?.set ?? {};
   const tmp = codexTmpDir(repoDir);
   for (const [key, want] of [["TEMP", tmp], ["TMP", tmp], ["PYTHONPATH", shimDir]]) {
@@ -62,6 +73,11 @@ export function checkEffectiveConfig(configRead, { repoDir, shimDir, model, effo
 
 export function findAppsTools(statusResponse) {
   if (!Array.isArray(statusResponse?.data)) throw new Error("mcpServerStatus/list 응답 형식이 예상과 다릅니다");
+  // 모르는 모양의 항목을 걸러 버리면 "외부 연결 도구 0개"로 잘못 읽는다. 항목마다 형식을 확인한다(검토 2 S9).
+  for (const server of statusResponse.data) {
+    const toolsOk = server?.tools === undefined || (typeof server.tools === "object" && server.tools !== null && !Array.isArray(server.tools));
+    if (typeof server?.name !== "string" || !toolsOk) throw new Error(`mcpServerStatus/list 응답의 항목 형식이 예상과 다릅니다: ${JSON.stringify(server)}`);
+  }
   const servers = statusResponse.data.filter((server) => server?.name === "codex_apps");
   return {
     present: servers.length > 0,

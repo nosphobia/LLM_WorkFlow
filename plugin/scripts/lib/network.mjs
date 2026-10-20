@@ -3,7 +3,8 @@ const PATTERNS = [
   { name: "pip install", re: /\bpip3?(\.exe)?\s+install\b|\b-m\s+pip\s+install\b|\buv\s+(pip\s+install|add|sync)\b/i },
   { name: "npm/yarn/pnpm", re: /\b(npm|pnpm)(\.cmd)?\s+(install|i|ci|add|update)\b|\byarn\s+(add|install)\b|\bnpx\s/i },
   { name: "download", re: /\b(curl|wget)(\.exe)?\b|\bInvoke-(WebRequest|RestMethod)\b|\b(iwr|irm)\s|\bStart-BitsTransfer\b|\bcertutil\b[^\n]*-urlcache/i },
-  { name: "git remote", re: /\bgit\s+(clone|fetch|pull|push|ls-remote)\b/i },
+  // git 전역 옵션(-C 경로, -c 키=값, --옵션)이 앞에 붙어도 찾는다.
+  { name: "git remote", re: /\bgit(?:\.exe)?\s+(?:(?:-C|-c)\s+\S+\s+|--[\w-]+(?:=\S+)?\s+)*(clone|fetch|pull|push|ls-remote)\b/i },
   { name: "system package", re: /\b(winget|choco|scoop)\s+install\b/i },
   { name: "other installer", re: /\bcargo\s+install\b|\bgo\s+(get|install)\b/i },
   { name: "url", re: /\bhttps?:\/\//i }

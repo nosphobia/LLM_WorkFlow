@@ -31,7 +31,8 @@ export async function runWrapper(options, deps) {
     riskyCommands: [],
     tempCleanup: null,
     newRootDirs: [],
-    protectedChanges: []
+    protectedChanges: [],
+    incomplete: []
   };
   const finish = (exitCode, reason) => finalize(options, deps, state, startedAt, exitCode, reason);
 
@@ -93,12 +94,19 @@ export async function runWrapper(options, deps) {
     let tampered = protectedTampered();
     if (tampered) return finish(EXIT.FAILED, tampered);
     if (first.exit !== null) return finish(first.exit, first.reason);
-    if (options.action === "resume" && first.threadId !== options.threadId) {
-      return finish(EXIT.FAILED, `이어간 대화 ID가 다릅니다: 요청 ${options.threadId}, 응답 ${first.threadId}`);
-    }
+
+    // 정정도 유료 차례다. 첫 호출 전처럼 한도를 다시 확인한다(검토 2 C2).
+    const limitBeforeCorrection = async () => {
+      const again = await deps.checkLimits();
+      if (again.status === "short") return { exit: EXIT.LIMIT, reason: `한도 부족(정정 전 확인): ${again.reason}` };
+      if (again.status !== "ok") return { exit: EXIT.ENVIRONMENT, reason: `한도 확인 실패(정정 전): ${again.reason}` };
+      return null;
+    };
 
     let report = parseReport(first.finalMessage);
     if (!report.ok) {
+      const blocked = await limitBeforeCorrection();
+      if (blocked) return finish(blocked.exit, blocked.reason);
       state.corrections += 1;
       state.formatCorrections += 1;
       const again = await runTurn(buildFormatCorrection(report.error), state.threadId);
@@ -113,6 +121,8 @@ export async function runWrapper(options, deps) {
 
     let comparison = compareChangedFiles(report.changedFiles, deps.listChangedFiles(options.cwd));
     if (!comparison.match) {
+      const blocked = await limitBeforeCorrection();
+      if (blocked) return finish(blocked.exit, blocked.reason);
       state.corrections += 1;
       state.mismatchCorrections += 1;
       const again = await runTurn(buildMismatchCorrection(comparison), state.threadId);
@@ -197,8 +207,12 @@ export async function runWrapper(options, deps) {
 
     const threadId = outcome.threadId ?? ids.threadId ?? null;
     const turnId = outcome.turnId ?? ids.turnId ?? null;
-    if (threadId) state.threadId = threadId;
+    // 이어가는 차례(재개, 정정)는 매번 응답의 대화 ID를 대조한다(검토 2 C1). 다르면 그 ID로 바꿔 적지 않는다.
+    const otherThread = Boolean(resumeThreadId && threadId && threadId !== resumeThreadId);
+    if (threadId && !otherThread) state.threadId = threadId;
     const summary = threadId && turnId ? await deps.readTurnSummary(threadId, turnId) : null;
+    // 세션 기록을 읽지 못하면 명령 탐지가 "0건"인 것이 아니라 확인하지 못한 것이다(검토 2 S6).
+    if (threadId && turnId && !summary?.completed) state.incomplete.push(`세션 기록을 읽지 못함(차례 ${turnId}): 명령 탐지와 토큰이 빠졌다`);
     for (const found of findNetworkCommands(summary?.commands ?? [])) state.networkCommands.push({ ...found, turnId });
     state.turns.push({
       turnId,
@@ -209,6 +223,7 @@ export async function runWrapper(options, deps) {
       weeklyEnd: weeklyPercent(summary?.rateLimitsEnd)
     });
 
+    if (otherThread) return { exit: EXIT.FAILED, reason: `이어간 대화 ID가 다릅니다: 요청 ${resumeThreadId}, 응답 ${threadId}` };
     const failed = Boolean(outcome.timedOut || outcome.thrown) || outcome.status !== 0;
     if (!failed) {
       // 재연결처럼 Codex가 재시도한 오류는 차례가 정상으로 끝났으면 실패가 아니다. 결과에만 남긴다.
@@ -245,10 +260,12 @@ async function requestInterrupt(deps, request) {
 // 확인이 실패해도 결과는 잃지 않고 경고로 남긴다.
 function inspectAfterCodex(options, deps, state, startedAt) {
   try {
-    const found = state.threadId ? deps.readSubagents(state.threadId, startedAt) : [];
-    state.subagents = Array.isArray(found) ? found.filter(Boolean) : [];
+    const found = state.threadId ? deps.readSubagents(state.threadId, startedAt) : { children: [], errors: [] };
+    const children = Array.isArray(found) ? found : Array.isArray(found?.children) ? found.children : [];
+    state.subagents = children.filter(Boolean);
+    for (const error of Array.isArray(found?.errors) ? found.errors : []) state.incomplete.push(`하위 에이전트 기록을 읽지 못함: ${error}`);
   } catch (error) {
-    state.warnings.push(`하위 에이전트 확인 실패: ${error?.message ?? error}`);
+    state.incomplete.push(`하위 에이전트 확인 실패: ${error?.message ?? error}`);
   }
   for (const child of state.subagents) {
     for (const found of findNetworkCommands(child.commands ?? [])) state.networkCommands.push({ ...found, turnId: null, subagent: child.threadId });
@@ -272,6 +289,7 @@ function inspectAfterCodex(options, deps, state, startedAt) {
 
 function buildWarnings(state) {
   const warnings = [...state.warnings];
+  for (const item of state.incomplete) warnings.push(`확인 못 함: ${item}`);
   for (const item of state.networkCommands) warnings.push(`네트워크 명령 감지 (${item.matches.join(", ")}): ${item.command}`);
   for (const item of state.riskyCommands) warnings.push(`위험 명령 감지 (${item.matches.join(", ")}): ${item.command}`);
   if (state.subagents.length > 0) warnings.push(`하위 에이전트 ${state.subagents.length}개: ${state.subagents.map((child) => child.threadId).join(", ")}`);
@@ -328,6 +346,7 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
     newRootDirs: state.newRootDirs,
     protectedChanges: state.protectedChanges,
     lateChanges: state.lateChanges,
+    incomplete: state.incomplete,
     warnings: buildWarnings(state),
     interrupt: state.interrupt ?? null,
     durationSec: Math.round((finishedAt - startedAt) / 1000),
@@ -356,6 +375,7 @@ function finalize(options, deps, state, startedAt, exitCode, reason) {
           mismatchCorrections: result.mismatchCorrections,
           networkCommands: result.networkCommands.length,
           riskyCommands: result.riskyCommands.length,
+          incomplete: state.incomplete.length > 0,
           lateChanges: result.lateChanges?.length ?? null,
           durationSec: result.durationSec,
           models: usage.models,

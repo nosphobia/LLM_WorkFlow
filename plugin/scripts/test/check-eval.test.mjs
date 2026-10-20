@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { trailerModel, evaluateBoundary, evaluatePinnedTurns } from "../lib/check-eval.mjs";
+import { trailerModel, evaluateBoundary, evaluatePinnedTurns, isRateLimited } from "../lib/check-eval.mjs";
 
 const rollout = ({ model = "gpt-5.6-sol", effort = "ultra", memory = false, turns = 1 } = {}) =>
   [
@@ -70,6 +70,20 @@ test("보고는 거부라도 파일이 실제로 생겼으면 실패다", () => 
   const verdict = evaluateBoundary(DENIED, { outsideFileExists: false, gitFileExists: true });
   assert.equal(verdict.pass, false);
   assert.match(verdict.detail, /\.git/);
+});
+
+test("거부(권한 오류)가 아닌 다른 오류는 거부로 보지 않고 확인 실패다", () => {
+  const other = '{"outside_write": "error:FileNotFoundError", "git_write": "denied", "network": "denied"}';
+  const verdict = evaluateBoundary(other, { outsideFileExists: false, gitFileExists: false });
+  assert.equal(verdict.pass, false);
+  assert.ok(verdict.detail.includes("저장소 밖 쓰기를 확인하지 못함 (error:FileNotFoundError)"), verdict.detail);
+});
+
+test("Codex 서버의 429 실패를 알아본다", () => {
+  assert.equal(isRateLimited({ exitCode: 3, result: { reason: "Codex 호출 실패: exceeded retry limit, last status: 429 Too Many Requests" } }), true);
+  assert.equal(isRateLimited({ exitCode: 3, result: { reason: "Codex 호출 실패: 제한 시간 0.5분 초과" } }), false);
+  assert.equal(isRateLimited({ exitCode: 0, result: { reason: "Codex 보고: DONE" } }), false);
+  assert.equal(isRateLimited({ exitCode: 3, result: null }), false);
 });
 
 test("점검 출력을 읽을 수 없으면 실패다", () => {

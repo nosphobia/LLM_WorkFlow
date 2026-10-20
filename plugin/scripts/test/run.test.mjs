@@ -354,10 +354,51 @@ test("resume은 지정한 대화로 이어가고, 다른 대화가 돌아오면 
 
 test("세션 기록이 없어도 결과를 남기고 사용량은 비운다", async () => {
   const { run, calls } = setup({ deps: { readTurnSummary: async () => null } });
-  const { exitCode } = await run();
+  const { exitCode, result } = await run();
   assert.equal(exitCode, EXIT.OK);
   assert.equal(calls.lines[0].value.tokens, null);
   assert.match(calls.commit[0].message, /Co-Authored-By: Codex unknown-model/);
+  // 명령 탐지가 0건인 것이 아니라 확인하지 못한 것이다.
+  assert.deepEqual(result.incomplete, ["세션 기록을 읽지 못함(차례 turn-1): 명령 탐지와 토큰이 빠졌다"]);
+  assert.ok(result.warnings.includes("확인 못 함: 세션 기록을 읽지 못함(차례 turn-1): 명령 탐지와 토큰이 빠졌다"));
+  assert.equal(calls.lines[0].value.incomplete, true);
+});
+
+test("끝나지 않은 세션 기록도 확인 못 함으로 남긴다", async () => {
+  const { run } = setup({ deps: { readTurnSummary: async () => ({ ...SUMMARY, completed: false }) } });
+  const { result } = await run();
+  assert.equal(result.incomplete.length, 1);
+});
+
+test("하위 에이전트 기록을 읽지 못한 것이 있으면 확인 못 함으로 남긴다", async () => {
+  const { run, calls } = setup({ deps: { readSubagents: () => ({ children: [], errors: ["rollout-x.jsonl: EBUSY"] }) } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.OK);
+  assert.deepEqual(result.incomplete, ["하위 에이전트 기록을 읽지 못함: rollout-x.jsonl: EBUSY"]);
+  assert.equal(calls.lines[0].value.incomplete, true);
+});
+
+test("정정 차례가 다른 대화로 답하면 커밋하지 않고 3", async () => {
+  const replies = [
+    "형식이 없는 답",
+    () => ({ status: 0, threadId: "thread-other", turnId: "turn-2", finalMessage: DONE(), error: null })
+  ];
+  const { run, calls } = setup({ replies });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.FAILED);
+  assert.equal(result.reason, "이어간 대화 ID가 다릅니다: 요청 thread-1, 응답 thread-other");
+  assert.equal(result.threadId, "thread-1");
+  assert.equal(calls.commit.length, 0);
+});
+
+test("정정 차례 전에 한도를 다시 확인하고, 부족하면 정정하지 않고 4", async () => {
+  const statuses = [{ status: "ok", reason: "한도 충분" }, { status: "short", reason: "10080분 창 남은 2% < 기준 5%" }];
+  const { run, calls } = setup({ replies: ["형식이 없는 답", DONE()], deps: { checkLimits: async () => statuses.shift() } });
+  const { exitCode, result } = await run();
+  assert.equal(exitCode, EXIT.LIMIT);
+  assert.match(result.reason, /^한도 부족\(정정 전 확인\): 10080분 창 남은 2%/);
+  assert.equal(calls.runTurn.length, 1);
+  assert.equal(calls.commit.length, 0);
 });
 
 test("의존성 호출이 예외를 던져도 결과와 대화 ID를 남기고 3", async () => {
@@ -428,7 +469,8 @@ test("하위 에이전트 확인이 예외를 던져도 결과를 남기고 경�
   });
   const { exitCode, result } = await run();
   assert.equal(exitCode, EXIT.OK);
-  assert.ok(result.warnings.includes("하위 에이전트 확인 실패: rollout unreadable"));
+  assert.ok(result.warnings.includes("확인 못 함: 하위 에이전트 확인 실패: rollout unreadable"));
+  assert.equal(calls.lines[0].value.incomplete, true);
   assert.equal(calls.json.length, 1);
   assert.equal(calls.lines.length, 1);
 });

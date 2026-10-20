@@ -48,6 +48,7 @@ export function summarizeCalls(text) {
     subagentTokens: sumTokens(calls.map((call) => call.subagentTokens)),
     totalTokens: sumTokens(calls.flatMap((call) => [call.tokens, call.subagentTokens])),
     riskyCommands: sumField(calls, "riskyCommands"),
+    incompleteCalls: calls.filter((call) => call.incomplete === true).length,
     weeklyStart: calls.find((call) => call.weeklyStart !== null && call.weeklyStart !== undefined)?.weeklyStart ?? null,
     weeklyEnd: [...calls].reverse().find((call) => call.weeklyEnd !== null && call.weeklyEnd !== undefined)?.weeklyEnd ?? null
   };
