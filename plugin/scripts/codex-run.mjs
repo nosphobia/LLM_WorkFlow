@@ -12,7 +12,7 @@ import { listChangedFiles, commitFiles, buildSnapshot } from "./lib/git-changes.
 import { findRolloutFile, summarizeTurn } from "./lib/rollout.mjs";
 import { runWrapper } from "./lib/run.mjs";
 import { shutdownBroker, isProcessAlive } from "./lib/broker.mjs";
-import { parseSettings } from "./lib/settings.mjs";
+import { parseSettings, resolveEffort } from "./lib/settings.mjs";
 import { evaluateLimits, formatLimitLines } from "./lib/limits.mjs";
 import { PROJECT_CONFIG_REL, buildProjectConfig, checkEffectiveConfig, codexTmpDir, findAppsTools } from "./lib/project-config.mjs";
 import { emptyDirInside, listRootDirs } from "./lib/temp-cleanup.mjs";
@@ -139,6 +139,7 @@ if (options.action === "trust-report") {
 }
 
 const settings = requireSettings("codex-run");
+options.effort = resolveEffort(options.effort, settings);
 const configFile = path.join(options.cwd, PROJECT_CONFIG_REL);
 const expectedConfig = { repoDir: options.cwd, shimDir: plugin.shimDir, model: settings.codex.model, effort: settings.codex.reasoningEffort };
 

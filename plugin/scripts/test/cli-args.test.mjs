@@ -54,9 +54,15 @@ test("resume에는 --thread가 필요하다", () => {
 
 test("잘못된 역할, 추론 강도, 라운드, 제한 시간은 거부한다", () => {
   assert.match(parseCliArgs([...startArgs.slice(0, -1), "writer"]).error, /--role/);
-  assert.match(parseCliArgs([...startArgs, "--effort", "max"]).error, /--effort/);
+  assert.match(parseCliArgs([...startArgs, "--effort", "huge"]).error, /--effort/);
   assert.match(parseCliArgs([...startArgs, "--round", "-1"]).error, /--round/);
   assert.match(parseCliArgs([...startArgs, "--timeout-min", "0"]).error, /--timeout-min/);
+});
+
+test("추론 강도는 Codex 단계(max, ultra 포함)와 설정 값을 뜻하는 escalated를 받는다", () => {
+  for (const effort of ["low", "xhigh", "max", "ultra", "escalated"]) {
+    assert.equal(parseCliArgs([...startArgs, "--effort", effort]).options?.effort, effort, effort);
+  }
 });
 
 test("선택 인자를 받는다", () => {

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { parseSettings, requiredRemaining, PHASES } from "../lib/settings.mjs";
+import { parseSettings, requiredRemaining, resolveEffort, PHASES } from "../lib/settings.mjs";
 import { pluginPaths, PLUGIN_ROOT, defaultPaths } from "../lib/pins.mjs";
 
 test("플러그인 경로는 플러그인 최상위 기준이다", () => {
@@ -21,7 +21,7 @@ test("실제 설정 파일을 읽을 수 있고 보호 경로와 두 요금제 �
   assert.deepEqual(parsed.settings.limits.plus["300"], { plan: 50, executeBase: 0, executePerTask: 18, call: 30 });
   assert.deepEqual(parsed.settings.limits.plus["10080"], { plan: 10, executeBase: 7, executePerTask: 3, call: 5 });
   assert.deepEqual(parsed.settings.limits.prolite["10080"], { plan: 5, executeBase: 5, executePerTask: 2, call: 5 });
-  assert.deepEqual(parsed.settings.codex, { model: "gpt-5.6-sol", reasoningEffort: "ultra" });
+  assert.deepEqual(parsed.settings.codex, { model: "gpt-5.6-sol", reasoningEffort: "ultra", escalatedReasoningEffort: "ultra" });
 });
 
 test("Codex 모델과 추론 강도가 없거나 쓸 수 없는 값이면 거부한다", () => {
@@ -30,14 +30,22 @@ test("Codex 모델과 추론 강도가 없거나 쓸 수 없는 값이면 거부
   assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "", reasoningEffort: "ultra" } })).error, /codex\.model/);
   assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "gpt-5.6-sol" } })).error, /codex\.reasoningEffort/);
   assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "it's", reasoningEffort: "ultra" } })).error, /codex\.model/);
-  assert.equal(parseSettings(JSON.stringify({ ...base, codex: { model: "gpt-5.6-sol", reasoningEffort: "ultra" } })).ok, true);
+  assert.match(parseSettings(JSON.stringify({ ...base, codex: { model: "gpt-5.6-sol", reasoningEffort: "ultra" } })).error, /codex.escalatedReasoningEffort/);
+  assert.equal(parseSettings(JSON.stringify({ ...base, codex: { model: "gpt-5.6-sol", reasoningEffort: "ultra", escalatedReasoningEffort: "ultra" } })).ok, true);
+});
+
+test("escalated는 설정의 올린 추론 강도로 바꾸고, 다른 값은 그대로 둔다", () => {
+  const settings = { codex: { model: "m", reasoningEffort: "high", escalatedReasoningEffort: "max" } };
+  assert.equal(resolveEffort("escalated", settings), "max");
+  assert.equal(resolveEffort("low", settings), "low");
+  assert.equal(resolveEffort(null, settings), null);
 });
 
 test("형식이 틀린 설정은 이유와 함께 거부한다", () => {
   assert.match(parseSettings("{").error, /해석할 수 없습니다/);
   assert.match(parseSettings(JSON.stringify({ limits: {} })).error, /protectedPaths/);
   assert.match(parseSettings(JSON.stringify({ protectedPaths: ["x"] })).error, /limits/);
-  const bad = { protectedPaths: ["x"], limits: { plus: { 300: { plan: 1, executeBase: 0, executePerTask: -1, call: 1 } } }, codex: { model: "m", reasoningEffort: "e" } };
+  const bad = { protectedPaths: ["x"], limits: { plus: { 300: { plan: 1, executeBase: 0, executePerTask: -1, call: 1 } } }, codex: { model: "m", reasoningEffort: "e", escalatedReasoningEffort: "e" } };
   assert.match(parseSettings(JSON.stringify(bad)).error, /limits\.plus\.300\.executePerTask/);
 });
 

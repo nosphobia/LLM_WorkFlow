@@ -9,4 +9,6 @@ Report each of these explicitly, in addition to the categories above:
 5. Commit steps: no step may tell the implementer to run git commit. Commit steps give the message to report.
 6. Spec line: the plan header must contain the line **Spec:** `<spec path>` with the English label and the path of the approved spec. A missing line, a translated label, or a wrong path is an Important issue, because the workflow stops when it cannot read this line.
 
+Review statically. Do not assemble, copy out, or run the plan's code: the implementers run their tests and the master runs the full suite later. Run code only if this dispatch explicitly names a disputed finding to check, and then only for that finding.
+
 You are read-only. Do not edit the plan or any other file.

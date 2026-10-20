@@ -1,5 +1,7 @@
 # 3단계 Codex 작업자 교체 Implementation Plan
 
+> **실행 당시 스냅샷이다.** 운영 지침으로 다시 실행하지 않는다. 현재 동작은 `plugin/`의 코드와 스킬이 기준이다. 완료 보고: `docs/2026-10-09 3단계 비교 시험 보고서.md`. 체크박스가 갱신되지 않은 것은 미구현을 뜻하지 않는다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Codex를 계획 작성자와 구현자로 쓰고 Claude가 검수하는 Claude Code 플러그인 `llm-workflow`(래퍼, 스킬 두 개, 연결부 점검 스크립트)를 이 저장소의 `plugin/`에 만들고, 설치와 버전 고정까지 마친다.

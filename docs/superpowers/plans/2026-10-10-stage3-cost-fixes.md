@@ -1,5 +1,7 @@
 # 3단계 비용 개선 구현 계획
 
+> **실행 당시 스냅샷이다.** 운영 지침으로 다시 실행하지 않는다. 현재 동작은 `plugin/`의 코드와 스킬이 기준이다. 완료 보고: `docs/reports/2026-10-11 비용 개선 구현 보고.md`. 체크박스가 갱신되지 않은 것은 미구현을 뜻하지 않는다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 래퍼와 두 스킬을 고쳐 3단계 비교 시험에서 드러난 비용 원인(대기 뒤 캐시 재작성, 마스터의 기계적인 일, Codex 하위 에이전트)을 줄이고, 안전 장치(보호 경로, 위험 명령, 외부 연결 도구, 프로젝트 Codex 설정)를 더한다.

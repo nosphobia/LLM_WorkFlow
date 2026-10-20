@@ -24,13 +24,18 @@ export function parseSettings(text) {
     }
   }
   // 래퍼가 프로젝트 Codex 설정에 TOML 리터럴 문자열로 쓰므로 작은따옴표와 줄바꿈은 받지 않는다.
-  for (const key of ["model", "reasoningEffort"]) {
+  for (const key of ["model", "reasoningEffort", "escalatedReasoningEffort"]) {
     const value = data.codex?.[key];
     if (typeof value !== "string" || value.trim() === "" || /['\r\n]/.test(value)) {
       return { ok: false, error: `설정 파일의 codex.${key}가 비어 있지 않은 문자열이 아니거나 쓸 수 없는 문자가 있습니다` };
     }
   }
   return { ok: true, settings: data };
+}
+
+// 스킬은 추론을 올릴 때 --effort escalated를 준다. 기본값보다 낮은 단계로 "올리는" 일을 막으려고 값을 설정 파일에 둔다.
+export function resolveEffort(effort, settings) {
+  return effort === "escalated" ? settings.codex.escalatedReasoningEffort : effort;
 }
 
 export function requiredRemaining(rule, phase, tasks = 0) {

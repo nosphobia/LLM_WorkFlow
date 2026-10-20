@@ -14,7 +14,8 @@ export const EXIT = Object.freeze({ OK: 0, STOPPED: 2, FAILED: 3, LIMIT: 4, ENVI
 export const DEFAULT_TIMEOUT_MIN = 30;
 export const USAGE_FILE = "codex-calls.jsonl";
 export const ROLES = Object.freeze(["plan", "plan-fix", "implement", "fix", "final-fix", "check"]);
-export const EFFORTS = Object.freeze(["none", "minimal", "low", "medium", "high", "xhigh"]);
+// Codex 단계는 low < medium < high < xhigh < max < ultra다(ultra는 작업 자동 위임이 붙는다). escalated는 설정의 "올린 추론 강도"를 뜻한다.
+export const EFFORTS = Object.freeze(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "escalated"]);
 
 export function defaultPaths(home = os.homedir()) {
   const cache = path.join(home, ".claude", "plugins", "cache");

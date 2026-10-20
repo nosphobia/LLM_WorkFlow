@@ -107,6 +107,31 @@ test("계획 지시 틀은 명세 머리말 줄을 정하고, 계획 검수는 �
   assert.match(read("codex-planning", "plan-review-additions.md"), /\*\*Spec:\*\* `<spec path>`/);
 });
 
+test("계획 검수는 모델 기준과 정적 검토 원칙을 정한다", () => {
+  const skill = read("codex-planning", "SKILL.md");
+  for (const phrase of ["기본은 `sonnet`이다", "명세의 작업 규모가 \"큰 작업\"이다", "계획 파일이 800줄을 넘는다", "위험 영역을 다룬다", "계획 검수는 정적 검토다", "그 지적에 해당하는 코드만 돌려 보라고"]) {
+    assert.ok(skill.includes(phrase), phrase);
+  }
+  assert.doesNotMatch(skill, /Opus 검수가 사용자 검토를 대신한다/);
+  assert.match(read("codex-planning", "plan-review-additions.md"), /^Review statically\. Do not assemble, copy out, or run the plan's code/m);
+});
+
+test("두 스킬은 추론 강도를 올릴 때 설정 값을 쓰고, 셸 &로 띄우지 않으며, 확인 못 함을 0건으로 보지 않는다", () => {
+  for (const name of ["codex-planning", "codex-execution"]) {
+    const skill = read(name, "SKILL.md");
+    assert.doesNotMatch(skill, /--effort xhigh/, name);
+    assert.ok(skill.includes("--effort escalated"), name);
+    assert.ok(skill.includes("셸 `&`로 띄우거나"), name);
+    assert.ok(skill.includes("\"확인 못 함\""), name);
+    assert.ok(skill.includes("변경이 없으면 커밋하지 않았다"), name);
+    assert.ok(skill.includes("호출의 첫 지시문 앞에 공통 규칙"), name);
+    assert.ok(skill.includes("목록이 같아도 이전 명령이 끝났다는 증거는 아니다"), name);
+  }
+  const planning = read("codex-planning", "SKILL.md");
+  assert.ok(planning.includes("계획 수정(`plan-fix`) 중이면 같은 역할·같은 라운드·같은 지적 파일로"));
+  assert.ok(planning.includes("범위, 보안, 작업 공간 밖 영향, 완료 기준을 바꾸는 결정만 계획 붕괴로"));
+});
+
 test("실행 스킬의 병합은 사용자 승인 뒤 로컬로만 하고 push는 하지 않는다", () => {
   const skill = read("codex-execution", "SKILL.md");
   assert.ok(skill.includes("main 병합은 사용자 승인 뒤 로컬로 한다"));
